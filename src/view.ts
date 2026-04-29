@@ -32,6 +32,7 @@ import { UndoStack, UndoEntry, UndoOp } from "./view/undo";
 import { BottomSheet } from "./view/bottom-sheet";
 import { attachCardGestures } from "./view/touch";
 import { MobileDragController } from "./view/drag-mobile";
+import { shouldCloseFilterPopoverOnPointerDown } from "./view/filter-popover";
 import { isMobileMode } from "./platform";
 import { openTaskSourceEditShell } from "./view/source-dialog";
 import { weekMinHeightFromViewHeightPx } from "./view/layout";
@@ -223,6 +224,7 @@ export class TaskCenterView extends ItemView {
     // Keyboard
     this.contentEl.tabIndex = 0;
     this.registerDomEvent(this.contentEl, "keydown", (e) => this.handleKey(e));
+    this.registerDomEvent(this.contentEl.ownerDocument, "pointerdown", (e) => this.handleFilterOutsidePointerDown(e));
 
     // US-502: mobile layout gating. Reads viewport width (< 600px) OR
     // user setting `mobileForceLayout` (escape hatch for iPad / split-
@@ -2837,6 +2839,20 @@ export class TaskCenterView extends ItemView {
   private refreshFilterControls(rerenderControls?: FilterControlsRerender): void {
     if (rerenderControls) rerenderControls();
     else this.render();
+  }
+
+  private handleFilterOutsidePointerDown(event: PointerEvent): void {
+    const isInsideFilterControls = event.composedPath().some((target) => {
+      return target instanceof HTMLElement && !!target.closest("[data-saved-views]");
+    });
+    if (!shouldCloseFilterPopoverOnPointerDown({
+      isOpen: this.filterPopoverOpen !== null,
+      isInsideFilterControls,
+    })) return;
+
+    this.filterPopoverOpen = null;
+    this.pendingDateRangeStart = null;
+    this.render();
   }
 
   // ---------- Footer / Add ----------
