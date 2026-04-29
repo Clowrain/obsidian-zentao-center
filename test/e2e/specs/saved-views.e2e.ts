@@ -175,6 +175,7 @@ describe("US-724 saved views / custom filters", function () {
       return Math.round(popover?.getBoundingClientRect().width ?? 0);
     });
     expect(statusPopoverWidth).toBeLessThanOrEqual(150);
+    await fs.writeFile("/tmp/task-center-status-popover-compact.png", Buffer.from(await browser.takeScreenshot(), "base64"));
     const statusOptions = await browser.execute(() =>
       Array.from(document.querySelectorAll("[data-status-option]")).map((el) => ({
         value: (el as HTMLElement).dataset.statusOption,
@@ -229,6 +230,7 @@ describe("US-724 saved views / custom filters", function () {
       return Math.round(presets?.getBoundingClientRect().width ?? 0);
     });
     expect(datePresetWidth).toBeLessThanOrEqual(170);
+    await fs.writeFile("/tmp/task-center-date-popover-compact.png", Buffer.from(await browser.takeScreenshot(), "base64"));
 
     const outsideClick = await browser.execute(() => {
       const view = document.querySelector<HTMLElement>(".task-center-view");

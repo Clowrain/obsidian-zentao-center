@@ -252,9 +252,9 @@
 }
 .task-center-view .bt-date-popover {
   display: grid;
-  width: min(620px, calc(100vw - 32px));
+  width: min(540px, calc(100vw - 32px));
   max-height: min(520px, calc(100vh - 120px));
-  grid-template-columns: minmax(132px, 0.62fr) minmax(320px, 1.38fr);
+  grid-template-columns: 148px minmax(320px, 1fr);
   align-items: stretch;
   gap: 12px;
   padding: 12px;
@@ -413,7 +413,7 @@
   cursor: pointer;
 }
 .task-center-view .bt-status-popover {
-  width: min(180px, calc(100vw - 32px));
+  width: min(132px, calc(100vw - 32px));
   gap: 4px;
   padding: 6px;
 }
