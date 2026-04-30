@@ -142,68 +142,97 @@ function makeAppWithExistingRegistrations() {
   return app;
 }
 
-test("plugin onload tolerates a stale task-center-board view registration", async () => {
+function installDevReloadFlag(value) {
+  const originalWindow = globalThis.window;
+  const localStorage = {
+    getItem(key) {
+      return key === "task-center-dev-reload-tolerant" ? value : null;
+    },
+  };
+  globalThis.window = { ...(originalWindow ?? {}), localStorage };
+  return () => {
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = originalWindow;
+    }
+  };
+}
+
+test("plugin onload rejects duplicate view registration in the production path", async () => {
   await compile();
   const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}`);
   const app = makeAppWithExistingTaskCenterView();
   const plugin = new TaskCenterPlugin(app);
-  const warnings = [];
-  const originalWarn = console.warn;
-  console.warn = (...args) => warnings.push(args);
 
-  try {
-    await assert.doesNotReject(
-      () => plugin.onload(),
-      /Attempting to register an existing view type "task-center-board"/,
-    );
-    assert.ok(plugin.api, "plugin should keep loading the GUI/API after a stale view registration");
-    assert.deepEqual(
-      warnings,
-      [],
-      "stale view registrations from a prior reload should not warn in the console",
-    );
-  } finally {
-    console.warn = originalWarn;
-  }
+  await assert.rejects(
+    () => plugin.onload(),
+    /Attempting to register an existing view type "task-center-board"/,
+  );
 });
 
-test("plugin onload tolerates stale native CLI handlers from a prior reload", async () => {
+test("plugin onload tolerates duplicate registrations only behind the dev reload flag", async () => {
   await compile();
   const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}`);
   const app = makeAppWithExistingRegistrations();
   const plugin = new TaskCenterPlugin(app);
-  const errors = [];
   const warnings = [];
-  const originalError = console.error;
+  const errors = [];
   const originalWarn = console.warn;
-  globalThis.__taskCenterNotices = [];
-  console.error = (...args) => errors.push(args);
+  const originalError = console.error;
+  const restoreFlag = installDevReloadFlag("1");
   console.warn = (...args) => warnings.push(args);
+  console.error = (...args) => errors.push(args);
 
   try {
     await assert.doesNotReject(
       () => plugin.onload(),
-      /Command "task-center:list" is already registered as a handler/,
+      /existing view type|already registered as a handler/,
     );
-    assert.ok(plugin.api, "plugin should keep loading after stale CLI handlers");
-    assert.deepEqual(
-      errors,
-      [],
-      "stale CLI handlers from a prior reload should not be reported as a plugin CLI failure",
-    );
-    assert.deepEqual(
-      globalThis.__taskCenterNotices,
-      [],
-      "stale CLI handlers from a prior reload should not show an end-user failure notice",
-    );
-    assert.deepEqual(
-      warnings,
-      [],
-      "stale CLI handlers from a prior reload should not warn in the console",
-    );
+    assert.ok(plugin.api, "plugin should keep loading the GUI/API after a stale view registration");
+    assert.deepEqual(warnings, [], "dev reload tolerance should stay quiet");
+    assert.deepEqual(errors, [], "dev reload tolerance should not report a production failure");
   } finally {
-    console.error = originalError;
     console.warn = originalWarn;
-    delete globalThis.__taskCenterNotices;
+    console.error = originalError;
+    restoreFlag();
   }
+});
+
+test("plugin onload rejects duplicate native CLI handlers in the production path", async () => {
+  await compile();
+  const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}`);
+  const app = makeAppWithExistingRegistrations();
+  app.__viewCreators.clear();
+  const plugin = new TaskCenterPlugin(app);
+
+  await assert.rejects(
+    () => plugin.onload(),
+    /Command "task-center:list" is already registered as a handler/,
+  );
+});
+
+test("CLI write handlers rely on cache events instead of directly refreshing open views", async () => {
+  await compile();
+  const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}`);
+  const app = makeAppWithExistingTaskCenterView();
+  app.__viewCreators.clear();
+  const plugin = new TaskCenterPlugin(app);
+  await plugin.onload();
+
+  let refreshCalls = 0;
+  plugin.refreshOpenViews = async () => {
+    refreshCalls++;
+  };
+  plugin.api = {
+    async done() {
+      return { before: "- [ ] A", after: "- [x] A", unchanged: false };
+    },
+    async show() {
+      return { id: "Tasks/Inbox.md:L1", completed: "2026-04-29" };
+    },
+  };
+
+  await plugin.cliDone({ ref: "Tasks/Inbox.md:L1" });
+  assert.equal(refreshCalls, 0, "CLI writes should not force an immediate view render");
 });

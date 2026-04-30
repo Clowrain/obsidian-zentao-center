@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
@@ -18,9 +18,25 @@ test("release metadata is ready for Obsidian community plugin submission", async
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(manifest.version, pkg.version);
   assert.equal(versions[manifest.version], manifest.minAppVersion);
+  assert.equal(manifest.minAppVersion, "1.12.2");
+  assert.ok(
+    Object.values(versions).every((minAppVersion) => minAppVersion === "1.12.2"),
+    "all published versions use native CLI APIs and must require Obsidian 1.12.2+",
+  );
   assert.equal(manifest.name, "Task Center");
   assert.equal(manifest.author, "CorrectRoadH");
   assert.equal(manifest.isDesktopOnly, false);
+});
+
+test("local plugin settings are not published as release defaults", async () => {
+  await assert.rejects(
+    () => access("data.json"),
+    { code: "ENOENT" },
+    "data.json is per-vault plugin state and must not be committed",
+  );
+
+  const gitignore = await readFile(".gitignore", "utf8");
+  assert.match(gitignore, /^data\.json$/m);
 });
 
 test("local lint gate mirrors Obsidian review bot required rules", async () => {

@@ -37,6 +37,15 @@ function isExistingCliHandlerError(error: unknown): boolean {
   return message.includes("already registered as a handler");
 }
 
+function isDevReloadToleranceEnabled(): boolean {
+  try {
+    return typeof window !== "undefined"
+      && window.localStorage?.getItem("task-center-dev-reload-tolerant") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default class TaskCenterPlugin extends Plugin {
   settings!: TaskCenterSettings;
   api!: TaskCenterApi;
@@ -93,17 +102,8 @@ export default class TaskCenterPlugin extends Plugin {
       try {
         this.registerAllCliHandlers();
       } catch (e) {
-        // BRAT / hot-reload can leave native CLI handlers registered from the
-        // previous plugin instance. Treat that as a reload residue, not as a
-        // user-visible plugin failure.
-        if (!isExistingCliHandlerError(e)) {
-          // A collision with another plugin registering the same verb is a soft
-          // failure — the GUI remains fully usable without the shell CLI.
-          console.error("[task-center] CLI registration failed:", e);
-          new Notice(
-            "Task center: CLI verbs failed to register (likely a namespace collision). GUI still works.",
-            6000,
-          );
+        if (!isDevReloadToleranceEnabled() || !isExistingCliHandlerError(e)) {
+          throw e;
         }
       }
     } else {
@@ -162,6 +162,7 @@ export default class TaskCenterPlugin extends Plugin {
       return;
     } catch (e) {
       if (!isExistingViewTypeError(e, VIEW_TYPE_TASK_CENTER)) throw e;
+      if (!isDevReloadToleranceEnabled()) throw e;
 
       const workspace = this.app.workspace as unknown as {
         unregisterView?: (type: string) => void;
@@ -178,8 +179,6 @@ export default class TaskCenterPlugin extends Plugin {
         }
       }
 
-      // Obsidian can leave the view type registered during hot-reload / failed
-      // reload cycles. Keep the rest of the plugin alive instead of aborting.
       return;
     }
   }
@@ -551,7 +550,6 @@ export default class TaskCenterPlugin extends Plugin {
     const clear = date === "null" || date === "--" || date === "";
     const r = await this.api.schedule(ref, clear ? null : date);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, clear ? "schedule cleared" : `scheduled ${date}`);
   }
 
@@ -561,7 +559,6 @@ export default class TaskCenterPlugin extends Plugin {
     const clear = date === "null" || date === "--" || date === "";
     const r = await this.api.deadline(ref, clear ? null : date);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, clear ? "deadline cleared" : `deadline ${date}`);
   }
 
@@ -578,7 +575,6 @@ export default class TaskCenterPlugin extends Plugin {
     if (minutes === null) throw new TaskWriterError("invalid_date", `not a duration: ${spec}`);
     const r = await this.api.actual(ref, minutes, add ? "add" : "set");
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, `actual ${add ? "+=" : "="} ${minutes}m`);
   }
 
@@ -590,7 +586,6 @@ export default class TaskCenterPlugin extends Plugin {
     if (!clear && minutes === null) throw new TaskWriterError("invalid_date", `not a duration: ${spec}`);
     const r = await this.api.estimate(ref, minutes);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, clear ? "estimate cleared" : `estimate ${minutes}m`);
   }
 
@@ -604,7 +599,6 @@ export default class TaskCenterPlugin extends Plugin {
     const at = args.at ?? null;
     const r = await this.api.done(ref, at);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     if (r.unchanged) return formatOkWrite(t, null, null, r.before, r.after, true, "already done", `unchanged (already done ✅ ${t.completed ?? ""})`);
     return formatOkWrite(t, null, null, r.before, r.after, false, "done");
   }
@@ -613,7 +607,6 @@ export default class TaskCenterPlugin extends Plugin {
     const ref = requireArg(args.ref, "ref");
     const r = await this.api.undone(ref);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     if (r.unchanged) return formatOkWrite(t, null, null, r.before, r.after, true, "already todo", "unchanged (already todo)");
     return formatOkWrite(t, null, null, r.before, r.after, false, "undone");
   }
@@ -622,7 +615,6 @@ export default class TaskCenterPlugin extends Plugin {
     const ref = requireArg(args.ref, "ref");
     const r = await this.api.drop(ref);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     if (r.unchanged) {
       return formatOkWrite(t, null, null, r.before, r.after, true, `already ${label}`, `unchanged (already ${label})`);
     }
@@ -654,7 +646,6 @@ export default class TaskCenterPlugin extends Plugin {
       parent: args.parent,
       stampCreated,
     });
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     return formatAdd(r);
   }
 
@@ -664,7 +655,6 @@ export default class TaskCenterPlugin extends Plugin {
     const remove = !!args.remove;
     const r = remove ? await this.api.tag(ref, tag, true) : await this.api.tag(ref, tag);
     const t = await this.api.show(ref);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     if (r.unchanged) return formatOkWrite(t, null, null, r.before, r.after, true, "no-op", "unchanged");
     return formatOkWrite(t, null, null, r.before, r.after, false, remove ? "tag removed" : "tag added");
   }
@@ -678,7 +668,6 @@ export default class TaskCenterPlugin extends Plugin {
     const ref = requireArg(args.ref, "ref");
     const under = requireArg(args.under, "under");
     const r = await this.api.nest(ref, under);
-    this.refreshOpenViews().catch((e) => console.warn("[task-center] refresh:", e));
     // After nest, the original ref may not resolve (line moved); show the parent instead.
     const parent = await this.api.show(under);
     const label = r.unchanged
