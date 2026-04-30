@@ -34,12 +34,7 @@ export default [
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
-      // "Task Center" is our plugin's brand name — keep it capitalized
-      "obsidianmd/ui/sentence-case": ["error", {
-        brands: ["Task Center"],
-        acronyms: ["CLI", "API", "IME", "AI", "US", "GUI"],
-        enforceCamelCaseLower: true,
-      }],
+      "@typescript-eslint/require-await": "error",
     },
   },
 ];

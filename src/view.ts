@@ -196,7 +196,7 @@ export class TaskCenterView extends ItemView {
     return VIEW_TYPE_TASK_CENTER;
   }
   getDisplayText(): string {
-    return "Task Center";
+    return "Task center";
   }
   getIcon(): string {
     return "kanban-square";
@@ -262,7 +262,7 @@ export class TaskCenterView extends ItemView {
     }
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     if (this.refreshTimer !== null) {
       window.clearTimeout(this.refreshTimer);
     }
@@ -273,6 +273,7 @@ export class TaskCenterView extends ItemView {
     this.viewResizeObserver?.disconnect();
     this.viewResizeObserver = null;
     this.dwellTracker.reset();
+    return Promise.resolve();
   }
 
   private scheduleRefresh() {
@@ -2789,7 +2790,7 @@ export class TaskCenterView extends ItemView {
   // @media); *capability* gating like this is a Platform check, allowed
   // at the UI layer per UX-mobile §13 #7.
   // see USER_STORIES.md
-  async handleKey(e: KeyboardEvent) {
+  handleKey(e: KeyboardEvent): void {
     if (Platform.isMobile) return;
 
     // Global tab switching

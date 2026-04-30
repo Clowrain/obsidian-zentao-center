@@ -101,7 +101,7 @@ export default class TaskCenterPlugin extends Plugin {
           // failure — the GUI remains fully usable without the shell CLI.
           console.error("[task-center] CLI registration failed:", e);
           new Notice(
-            "Task Center: CLI verbs failed to register (likely a namespace collision). GUI still works.",
+            "Task center: CLI verbs failed to register (likely a namespace collision). GUI still works.",
             6000,
           );
         }

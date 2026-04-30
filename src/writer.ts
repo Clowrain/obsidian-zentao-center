@@ -54,11 +54,11 @@ export function parseTaskId(id: string): { path: string; line?: number; hash?: s
 // US-214: ambiguous hash → throw `ambiguous_slug` with the candidate list
 //          so the caller can disambiguate; never silently pick one.
 // see USER_STORIES.md
-export async function resolveTaskRef(
+export function resolveTaskRef(
   app: App,
   id: string,
   allTasks: ParsedTask[],
-): Promise<ParsedTask | null> {
+): ParsedTask | null {
   const parsed = parseTaskId(id);
   if (parsed.hash) {
     const matches = allTasks.filter((t) => t.hash === parsed.hash);

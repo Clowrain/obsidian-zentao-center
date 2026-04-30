@@ -22,3 +22,13 @@ test("release metadata is ready for Obsidian community plugin submission", async
   assert.equal(manifest.author, "CorrectRoadH");
   assert.equal(manifest.isDesktopOnly, false);
 });
+
+test("local lint gate mirrors Obsidian review bot required rules", async () => {
+  const { default: eslintConfig } = await import("../eslint.config.mjs");
+  const srcOverride = eslintConfig.find((entry) =>
+    Array.isArray(entry.files) && entry.files.includes("src/**/*.ts")
+  );
+
+  assert.equal(srcOverride?.rules?.["@typescript-eslint/require-await"], "error");
+  assert.equal(srcOverride?.rules?.["obsidianmd/ui/sentence-case"], undefined);
+});
