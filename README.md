@@ -2,7 +2,7 @@
 
 [简体中文](./README.zh-CN.md)
 
-Task Center is an Obsidian plugin that adds a daily/weekly/monthly task board, parent-child task rendering, natural-language Quick Add, mobile gestures, and an AI-friendly CLI on top of plain Obsidian Tasks markdown.
+Task Center is an Obsidian plugin that adds a daily/weekly/monthly task board, parent-child task rendering, natural-language Quick Add, mobile gestures, and an AI-friendly CLI on top of Obsidian Tasks markdown.
 
 It does not create a new database or task format. Your source of truth stays in markdown:
 
@@ -13,9 +13,13 @@ It does not create a new database or task format. Your source of truth stays in 
 - [-] Retired idea ❌ 2026-04-28
 ```
 
+https://github.com/user-attachments/assets/5502f9f1-59b0-421d-8b21-2dcf1441a222
+
+![Month view](screenshots/month.png)
+
 ## Why Task Center
 
-Obsidian Tasks already owns the task syntax and query model. Task Center keeps that foundation and adds the working surfaces that are awkward to build in a note:
+Obsidian Tasks owns the task syntax and query model. Task Center keeps that foundation and adds the working surfaces that are awkward to build in a note:
 
 | Need | Task Center adds |
 | --- | --- |
@@ -29,14 +33,14 @@ Obsidian Tasks already owns the task syntax and query model. Task Center keeps t
 
 ## Install
 
-Task Center is not yet listed in Obsidian's Community Plugins browser. Until it is, BRAT is the recommended installation path because it installs from GitHub Releases and can check for updates without manual file copying.
+Task Center is not yet listed in Obsidian's Community Plugins browser. Until it is, install it with BRAT so releases and updates come from GitHub.
 
 ### Prerequisites
 
 1. Install and enable [Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks). Task Center reads and writes Tasks-compatible markdown and expects the Tasks plugin to remain the data-layer companion.
 2. Enable Obsidian's built-in **Daily Notes** core plugin and set its "New file location". Quick Add writes new tasks to today's Daily Note and refuses to fall back to an inbox when Daily Notes is missing or misconfigured.
 
-### Option 1: Install with BRAT (recommended)
+### Install with BRAT
 
 1. In Obsidian, open **Settings -> Community plugins**.
 2. Turn off Restricted Mode if Obsidian asks you to.
@@ -52,32 +56,9 @@ Task Center is not yet listed in Obsidian's Community Plugins browser. Until it 
 7. Let BRAT install the latest release.
 8. Return to **Settings -> Community plugins** and enable **Task Center**.
 
-### Option 2: Manual install
-
-1. Open the [latest GitHub Release](https://github.com/CorrectRoadH/obsidian-task-center/releases/latest).
-2. Download the three release assets:
-   - `main.js`
-   - `manifest.json`
-   - `styles.css`
-3. Create this folder inside your vault:
-
-   ```text
-   <your-vault>/.obsidian/plugins/task-center/
-   ```
-
-4. Put the three files directly inside that folder. They must not be inside a nested zip or extracted subfolder.
-5. Restart Obsidian.
-6. Open **Settings -> Community plugins** and enable **Task Center**.
-
 ### Mobile install
 
-Task Center is mobile-capable (`isDesktopOnly: false`). Before the plugin is listed in the official Community Plugins browser, the most reliable mobile setup is:
-
-1. Install Task Center on desktop with BRAT or the manual three-file method.
-2. Sync `.obsidian/plugins/task-center/` to mobile with Obsidian Sync, or copy the same folder to the mobile vault.
-3. On Obsidian Mobile, open **Settings -> Community plugins** and enable **Task Center**.
-
-If Task Center does not appear on mobile, confirm that `manifest.json`, `main.js`, and `styles.css` are directly inside `.obsidian/plugins/task-center/`, Restricted Mode is off, and the phone is opening the same vault copy.
+Task Center is mobile-capable (`isDesktopOnly: false`). Install it on desktop with BRAT, sync plugins with Obsidian Sync, then enable **Task Center** in Obsidian Mobile.
 
 ## Quick Start
 
@@ -89,11 +70,7 @@ If Task Center does not appear on mobile, confirm that `manifest.json`, `main.js
    - [ ] Renew passport 📅 2026-05-30
    ```
 
-3. Open Task Center from the ribbon icon, command palette, `Ctrl/Cmd+Shift+T`, or:
-
-   ```bash
-   obsidian command id=task-center:open
-   ```
+3. Open Task Center from the ribbon icon, command palette, or `Ctrl/Cmd+Shift+T`.
 
 4. Use **Quick Add** with `Ctrl/Cmd+T` inside the board:
 
@@ -102,7 +79,7 @@ If Task Center does not appear on mobile, confirm that `manifest.json`, `main.js
    处理发布清单 #3象限 周六 [estimate:: 45m]
    ```
 
-Natural-language dates such as `today`, `tomorrow`, `Mon`, `今天`, `明天`, and `周六` are resolved to ISO dates before writing markdown.
+Natural-language dates such as `today`, `tomorrow`, `今天`, and `周六` are resolved to ISO dates before writing markdown.
 
 ## Views
 
@@ -116,21 +93,9 @@ Drag a card to a date to change `⏳`. Drop it onto another card to nest it. Dro
 
 ## Syntax
 
-Task Center preserves Obsidian Tasks metadata and unknown inline fields byte-for-byte when editing, moving, or nesting tasks.
+Task Center preserves Obsidian Tasks metadata such as `⏳`, `📅`, `🛫`, `➕`, and `✅`, and uses `[-] ❌ YYYY-MM-DD` for abandoned tasks.
 
-| Meaning | Markdown |
-| --- | --- |
-| Scheduled for | `⏳ YYYY-MM-DD` |
-| Deadline | `📅 YYYY-MM-DD` |
-| Start date | `🛫 YYYY-MM-DD` |
-| Created | `➕ YYYY-MM-DD` |
-| Completed | `[x]` plus `✅ YYYY-MM-DD` |
-| Abandoned | `[-]` plus `❌ YYYY-MM-DD` |
-| Estimate | `[estimate:: 90m]`, `[estimate:: 1h30m]` |
-| Actual time | `[actual:: 75m]` |
-| Tags | `#work`, `#1象限`, `#next` |
-
-Tags and inline-field names are user data. Task Center does not translate, normalize, or hard-code them.
+Estimate and actual-time summaries use inline fields such as `[estimate:: 90m]`, `[estimate:: 1h30m]`, and `[actual:: 75m]`. Tags and unknown inline fields are preserved byte-for-byte.
 
 ## CLI
 
@@ -143,19 +108,11 @@ obsidian task-center:show ref=Tasks/Inbox.md:L42
 obsidian task-center:add text="Review launch checklist" tag='#work' scheduled=2026-05-15
 obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=2026-05-16
 obsidian task-center:done ref=Tasks/Inbox.md:L42 at=2026-04-28
-obsidian task-center:abandon ref=Tasks/Inbox.md:L42
-obsidian task-center:nest ref=Tasks/Inbox.md:L42 under=Projects/Launch.md:L10
-obsidian task-center:actual ref=Tasks/Inbox.md:L42 minutes=+30m
 obsidian task-center:review days=7
 obsidian task-center:review days=7 format=json
 ```
 
-CLI output is designed for both humans and agents:
-
-- List rows start with a stable id such as `path:L42`.
-- Write commands are idempotent.
-- Mutations print `before` and `after` lines.
-- Hash collisions return `ambiguous_slug` with candidates instead of guessing.
+CLI output is greppable and agent-friendly: list rows start with stable ids, writes are idempotent, and mutations print `before` / `after` lines.
 
 To install the companion AI skill:
 
