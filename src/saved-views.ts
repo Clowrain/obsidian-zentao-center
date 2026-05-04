@@ -1,6 +1,9 @@
 import type {
   QueryPreset,
   QueryPresetFilters,
+  QueryPresetMatrixBucket,
+  QueryPresetMatrixConfig,
+  QueryPresetMatrixAxis,
   QueryPresetSummaryMetric,
   QueryPresetValidationError,
   QueryPresetValidationResult,
@@ -628,10 +631,40 @@ function normalizeQueryPresetView(raw: unknown): QueryPresetViewConfig {
   const orderBy = Array.isArray(cfg.orderBy)
     ? cfg.orderBy.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean)
     : undefined;
+  const matrix = isRecord(cfg.matrix) ? normalizeMatrixConfig(cfg.matrix) : undefined;
   const out: QueryPresetViewConfig = { type };
   if (preset) out.preset = preset;
   if (orderBy && orderBy.length > 0) out.orderBy = orderBy;
+  if (matrix) out.matrix = matrix;
   return out;
+}
+
+function normalizeMatrixConfig(raw: Record<string, unknown>): QueryPresetMatrixConfig | undefined {
+  const x = isRecord(raw.x) ? normalizeMatrixAxis(raw.x) : undefined;
+  const y = isRecord(raw.y) ? normalizeMatrixAxis(raw.y) : undefined;
+  if (!x || !y) return undefined;
+  const unmatched = raw.unmatched === "hide" ? "hide" : "show";
+  const multiMatch = raw.multiMatch === "duplicate" ? "duplicate" : "first";
+  const showEmptyBuckets = typeof raw.showEmptyBuckets === "boolean" ? raw.showEmptyBuckets : true;
+  return { x, y, unmatched, multiMatch, showEmptyBuckets };
+}
+
+function normalizeMatrixAxis(raw: Record<string, unknown>): QueryPresetMatrixAxis | undefined {
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  if (!id) return undefined;
+  const buckets: QueryPresetMatrixBucket[] = Array.isArray(raw.buckets)
+    ? raw.buckets.map((b: unknown) => normalizeMatrixBucket(isRecord(b) ? b : {})).filter((b): b is QueryPresetMatrixBucket => b !== null)
+    : [];
+  return { id, title: title || id, buckets };
+}
+
+function normalizeMatrixBucket(raw: Record<string, unknown>): QueryPresetMatrixBucket | null {
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  if (!id) return null;
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  const when: QueryPresetFilters = isRecord(raw.when) ? normalizeQueryPresetFilters(raw.when) : {};
+  return { id, title: title || id, when };
 }
 
 function normalizeQueryPresetSummary(

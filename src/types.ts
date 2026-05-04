@@ -99,7 +99,7 @@ export interface TaskCenterSettings {
 }
 
 export type SavedViewStatus = "all" | TaskStatus | TaskStatus[];
-export type SavedViewTimeField = "scheduled" | "deadline" | "completed" | "created";
+export type SavedViewTimeField = "scheduled" | "deadline" | "completed" | "created" | "dropped";
 export type SavedViewTimeFilters = Partial<Record<SavedViewTimeField, string>>;
 export type QueryViewType = "list" | "week" | "month" | "matrix";
 
@@ -148,10 +148,31 @@ export interface QueryPresetFilters {
   time?: SavedViewTimeFilters;
 }
 
+export interface QueryPresetMatrixBucket {
+  id: string;
+  title: string;
+  when: QueryPresetFilters;
+}
+
+export interface QueryPresetMatrixAxis {
+  id: string;
+  title: string;
+  buckets: QueryPresetMatrixBucket[];
+}
+
+export interface QueryPresetMatrixConfig {
+  x: QueryPresetMatrixAxis;
+  y: QueryPresetMatrixAxis;
+  unmatched: "show" | "hide";
+  multiMatch: "first" | "duplicate";
+  showEmptyBuckets: boolean;
+}
+
 export interface QueryPresetViewConfig {
   type: QueryViewType;
   preset?: string;
   orderBy?: string[];
+  matrix?: QueryPresetMatrixConfig;
 }
 
 export interface QueryPresetSummaryMetric {
