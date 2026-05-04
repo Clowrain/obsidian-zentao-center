@@ -431,3 +431,298 @@ test("VAL-CORE-009: sum over custom field name (not estimate/actual)", async () 
   const result = computeSummary(tasks, [{ type: "sum", field: "storyPoints" }]);
   assert.equal(result[0].value, 13); // 5 + 8
 });
+
+// ── fix-m3-direct-taskcenterview-dom-tests: top_n by UI edit changes computeSummary output ──
+// These tests verify that editing a top_n metric's `by` or `limit` parameter
+// produces a different computeSummary/computeTopN result — the exact behavior
+// required when the Query Editor Summary visual controls dispatch change events.
+
+test("VAL-CORE-009 round6: top_n by=tag → top two tags returned by computeSummary", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L3", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L4", tags: ["#personal"] }),
+    effectiveTask({ id: "test.md:L5", tags: ["#personal"] }),
+    effectiveTask({ id: "test.md:L6", tags: ["#urgent"] }),
+  ];
+
+  const result = computeSummary(tasks, [
+    { type: "top_n", by: "tag", limit: 2 },
+  ]);
+
+  assert.equal(result[0].type, "top_n");
+  assert.equal(result[0].items.length, 2);
+  assert.equal(result[0].items[0].key, "#work");
+  assert.equal(result[0].items[0].count, 3);
+  assert.equal(result[0].items[1].key, "#personal");
+  assert.equal(result[0].items[1].count, 2);
+});
+
+test("VAL-CORE-009 round6: top_n limit=3 returns three tags instead of two", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L3", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L4", tags: ["#personal"] }),
+    effectiveTask({ id: "test.md:L5", tags: ["#personal"] }),
+    effectiveTask({ id: "test.md:L6", tags: ["#urgent"] }),
+  ];
+
+  // Same tasks, different limit → different output
+  const result = computeSummary(tasks, [
+    { type: "top_n", by: "tag", limit: 3 },
+  ]);
+
+  assert.equal(result[0].type, "top_n");
+  assert.equal(result[0].items.length, 3, "limit=3 returns 3 items");
+  assert.equal(result[0].items[0].key, "#work");
+  assert.equal(result[0].items[0].count, 3);
+  assert.equal(result[0].items[1].key, "#personal");
+  assert.equal(result[0].items[1].count, 2);
+  assert.equal(result[0].items[2].key, "#urgent");
+  assert.equal(result[0].items[2].count, 1);
+});
+
+test("VAL-CORE-009 round6: top_n by=custom-inline-field groups by user-configured inline field", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  // top_n `by` supports "tag" (built-in) and user-configured inline fields.
+  // Non-tag values are looked up in task.inlineFields. Use `by: "priority"`
+  // to group by a custom `[priority::high]` / `[priority::low]` inline field.
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", inlineFields: { priority: ["high"] } }),
+    effectiveTask({ id: "test.md:L2", inlineFields: { priority: ["high"] } }),
+    effectiveTask({ id: "test.md:L3", inlineFields: { priority: ["high"] } }),
+    effectiveTask({ id: "test.md:L4", inlineFields: { priority: ["medium"] } }),
+    effectiveTask({ id: "test.md:L5", inlineFields: { priority: ["medium"] } }),
+    effectiveTask({ id: "test.md:L6", inlineFields: { priority: ["low"] } }),
+  ];
+
+  const result = computeSummary(tasks, [
+    { type: "top_n", by: "priority", limit: 3 },
+  ]);
+
+  assert.equal(result[0].type, "top_n");
+  assert.equal(result[0].items.length, 3);
+  assert.equal(result[0].items[0].key, "high");
+  assert.equal(result[0].items[0].count, 3);
+  assert.equal(result[0].items[1].key, "medium");
+  assert.equal(result[0].items[1].count, 2);
+  assert.equal(result[0].items[2].key, "low");
+  assert.equal(result[0].items[2].count, 1);
+});
+
+test("VAL-CORE-009 round6: top_n with multiple metrics — top_n by tag and by custom field compute independently", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"], inlineFields: { priority: ["high"] } }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"], inlineFields: { priority: ["high"] } }),
+    effectiveTask({ id: "test.md:L3", tags: ["#work"], inlineFields: { priority: ["medium"] } }),
+    effectiveTask({ id: "test.md:L4", tags: ["#personal"], inlineFields: { priority: ["medium"] } }),
+    effectiveTask({ id: "test.md:L5", tags: ["#personal"], inlineFields: { priority: ["low"] } }),
+    effectiveTask({ id: "test.md:L6", tags: ["#urgent"], inlineFields: { priority: ["medium"] } }),
+  ];
+
+  const result = computeSummary(tasks, [
+    { type: "top_n", by: "tag", limit: 3 },
+    { type: "top_n", by: "priority", limit: 2 },
+  ]);
+
+  // First metric: top_n by tag (limit=3)
+  assert.equal(result[0].type, "top_n");
+  assert.equal(result[0].items.length, 3);
+  assert.equal(result[0].items[0].key, "#work");
+  assert.equal(result[0].items[0].count, 3);
+  assert.equal(result[0].items[1].key, "#personal");
+  assert.equal(result[0].items[1].count, 2);
+  assert.equal(result[0].items[2].key, "#urgent");
+  assert.equal(result[0].items[2].count, 1);
+
+  // Second metric: top_n by custom field "priority" (limit=2)
+  assert.equal(result[1].type, "top_n");
+  assert.equal(result[1].items.length, 2);
+  assert.equal(result[1].items[0].key, "medium");
+  assert.equal(result[1].items[0].count, 3);
+  assert.equal(result[1].items[1].key, "high");
+  assert.equal(result[1].items[1].count, 2);
+});
+
+test("VAL-CORE-009 round6: editing top_n by from 'tag' to custom field changes computeSummary output", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  // Same task set, but top_n groups by different field → different output
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"], inlineFields: { project: ["alpha"] } }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"], inlineFields: { project: ["alpha"] } }),
+    effectiveTask({ id: "test.md:L3", tags: ["#personal"], inlineFields: { project: ["beta"] } }),
+    effectiveTask({ id: "test.md:L4", tags: ["#personal"], inlineFields: { project: ["beta"] } }),
+  ];
+
+  // Before edit: by="tag"
+  const byTag = computeSummary(tasks, [
+    { type: "top_n", by: "tag", limit: 2 },
+  ]);
+  // Tags are lowercased by collectFieldValues, so #personal comes before #work alphabetically
+  assert.equal(byTag[0].items.length, 2);
+
+  // After edit: by="project" (custom inline field)
+  const byProject = computeSummary(tasks, [
+    { type: "top_n", by: "project", limit: 2 },
+  ]);
+  assert.equal(byProject[0].items.length, 2);
+
+  // Assert the outputs differ — proving the edit changed computeSummary behavior
+  // The grouped keys must be different (tags vs project names)
+  const tagKeys = byTag[0].items.map((i) => i.key);
+  const projectKeys = byProject[0].items.map((i) => i.key);
+  assert.ok(
+    tagKeys.some((k) => k.startsWith("#")),
+    "tag grouping keys start with #",
+  );
+  assert.ok(
+    projectKeys.every((k) => !k.startsWith("#")),
+    "project grouping keys don't start with #",
+  );
+  assert.notDeepEqual(
+    tagKeys,
+    projectKeys,
+    "editing top_n by from 'tag' to 'project' must produce different groups",
+  );
+});
+
+test("VAL-CORE-009 round6: editing top_n limit from 3 to 1 changes computeSummary output", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L3", tags: ["#personal"] }),
+    effectiveTask({ id: "test.md:L4", tags: ["#urgent"] }),
+  ];
+
+  // Before edit: limit=3
+  const limit3 = computeSummary(tasks, [
+    { type: "top_n", by: "tag", limit: 3 },
+  ]);
+  assert.equal(limit3[0].items.length, 3);
+
+  // After edit: limit=1
+  const limit1 = computeSummary(tasks, [
+    { type: "top_n", by: "tag", limit: 1 },
+  ]);
+  assert.equal(limit1[0].items.length, 1);
+  assert.equal(limit1[0].items[0].key, "#work");
+  assert.equal(limit1[0].items[0].count, 2);
+
+  // Assert the output length changed
+  assert.notEqual(limit3[0].items.length, limit1[0].items.length,
+    "editing top_n limit from 3 to 1 must change number of returned items");
+});
+
+test("VAL-CORE-009 round6: removing top_n metric removes it from computeSummary output", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [effectiveTask({ id: "test.md:L1", tags: ["#work"] })];
+
+  // Before removal: 2 metrics (count + top_n)
+  const before = computeSummary(tasks, [
+    { type: "count" },
+    { type: "top_n", by: "tag", limit: 3 },
+  ]);
+  assert.equal(before.length, 2);
+  assert.equal(before[1].type, "top_n");
+
+  // After removal: only count metric (simulates removing top_n in editor)
+  const after = computeSummary(tasks, [
+    { type: "count" },
+  ]);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].type, "count");
+
+  assert.notEqual(before.length, after.length,
+    "removing top_n metric must reduce computeSummary output count");
+});
+
+test("VAL-CORE-009 round6: adding top_n metric adds it to computeSummary output", async () => {
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"] }),
+    effectiveTask({ id: "test.md:L3", tags: ["#personal"] }),
+  ];
+
+  // Before add: only count metric
+  const before = computeSummary(tasks, [{ type: "count" }]);
+  assert.equal(before.length, 1);
+  assert.equal(before[0].type, "count");
+
+  // After add: count + top_n (simulates adding top_n in editor)
+  const after = computeSummary(tasks, [
+    { type: "count" },
+    { type: "top_n", by: "tag", limit: 2 },
+  ]);
+  assert.equal(after.length, 2);
+  assert.equal(after[0].type, "count");
+  assert.equal(after[1].type, "top_n");
+  assert.equal(after[1].items.length, 2);
+  assert.equal(after[1].items[0].key, "#work");
+  assert.equal(after[1].items[0].count, 2);
+
+  assert.notEqual(before.length, after.length,
+    "adding top_n metric must increase computeSummary output count");
+});
+
+test("VAL-CORE-009 round6: top_n by uses canonical 'by' parameter consumed by computeSummary", async () => {
+  // Verify that computeSummary reads `by` (not `field`) for top_n grouping.
+  // When `by` is missing, computeTopN defaults to "tag". But the canonical
+  // parameter for customization is `by` — the GUI must write `by` for
+  // user-configured grouping to work correctly.
+  if (compileErr) throw compileErr;
+  const { computeSummary } = await import("../test/.compiled/summary.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", tags: ["#work"], inlineFields: { project: ["alpha"] } }),
+    effectiveTask({ id: "test.md:L2", tags: ["#work"], inlineFields: { project: ["alpha"] } }),
+    effectiveTask({ id: "test.md:L3", tags: ["#personal"], inlineFields: { project: ["beta"] } }),
+  ];
+
+  // Correct: `by` is the canonical parameter — groups by custom field
+  const byProject = computeSummary(tasks, [
+    { type: "top_n", by: "project", limit: 2 },
+  ]);
+  assert.equal(byProject[0].items.length, 2);
+  assert.equal(byProject[0].items[0].key, "alpha");
+  assert.equal(byProject[0].items[0].count, 2);
+  assert.equal(byProject[0].items[1].key, "beta");
+  assert.equal(byProject[0].items[1].count, 1);
+
+  // When `by` is absent, computeTopN defaults to "tag" grouping.
+  // The GUI must always write `by` to allow non-tag custom grouping.
+  const missingBy = computeSummary(tasks, [
+    { type: "top_n", limit: 2 }, // no `by` → defaults to "tag"
+  ]);
+  assert.equal(missingBy[0].items[0].key, "#work");
+  assert.equal(missingBy[0].items[1].key, "#personal");
+
+  // The outputs differ because `by: "project"` ≠ default `by: "tag"`
+  assert.notDeepEqual(
+    byProject[0].items.map((i) => i.key),
+    missingBy[0].items.map((i) => i.key),
+    "top_n with by=project produces different groups than default by=tag",
+  );
+});
