@@ -60,6 +60,8 @@ const {
   applySummaryMetricRemove,
   applySummaryMetricAdd,
   updateQueryPresetById,
+  computeDeleteQueryPresetState,
+  computeUndoQueryPresetState,
 } = await import("../test/.compiled/saved-views.js");
 
 test("US-109c: createSavedView persists the current filter conditions, not a task snapshot", () => {
@@ -2041,6 +2043,699 @@ test("VAL-GUI-004 production: confirm-delete-undo roundtrip preserves all QueryP
   assert.deepEqual(restoredRich.filters, snap.filters);
   assert.deepEqual(restoredRich.view, snap.view);
   assert.deepEqual(restoredRich.summary, snap.summary);
+});
+
+// ── fix-m3-delete-undo-taskcenterview-path ──
+// Production-path tests that exercise the view-level state management
+// functions (computeDeleteQueryPresetState / computeUndoQueryPresetState)
+// called by TaskCenterView.deleteSavedViewWithConfirm.  These tests
+// stub Obsidian Modal/Notice through executeDeleteQueryPresetFlow
+// callbacks and verify delete + undo state restoration including
+// order, default, and active tab recovery.
+
+test("VAL-GUI-004: computeDeleteQueryPresetState — no fallback when deleting non-default non-active tab", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Simulate: flow result for deleting Beta (non-default, non-active)
+  // But Beta IS NOT default, IS NOT active in this test
+  const flowResult = {
+    confirmed: true,
+    undoPlan: computeQueryPresetDeleteUndoPlan(presets, b),
+    wasDefault: false,
+    wasActive: false,
+    presetsAfter: deleteQueryPresetById(presets, "sv-b"),
+    undoNotice: null,
+  };
+
+  const state = computeDeleteQueryPresetState({
+    result: flowResult,
+    visibleTabs: [a, b, c],
+    view: b,
+  });
+
+  assert.deepEqual(state.presetsAfter.map((p) => p.id), ["sv-a", "sv-c"]);
+  assert.equal(state.newDefaultId, null, "default should not change");
+  assert.equal(state.shouldSwitchActive, false, "active should not switch");
+  assert.equal(state.nextActiveView, null);
+});
+
+test("VAL-GUI-004: computeDeleteQueryPresetState — fallback default when deleted tab was default", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Alpha IS default. Deleting Alpha.
+  const flowResult = {
+    confirmed: true,
+    undoPlan: computeQueryPresetDeleteUndoPlan(presets, a),
+    wasDefault: true,   // Alpha was default
+    wasActive: false,
+    presetsAfter: deleteQueryPresetById(presets, "sv-a"),
+    undoNotice: null,
+  };
+
+  const state = computeDeleteQueryPresetState({
+    result: flowResult,
+    visibleTabs: [a, b, c],
+    view: a,
+  });
+
+  assert.deepEqual(state.presetsAfter.map((p) => p.id), ["sv-b", "sv-c"]);
+  assert.equal(state.newDefaultId, "sv-b", "default should fallback to next visible tab (Beta)");
+  assert.equal(state.shouldSwitchActive, false);
+});
+
+test("VAL-GUI-004: computeDeleteQueryPresetState — switch active when deleted tab was active", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Beta IS active. Deleting Beta.
+  const flowResult = {
+    confirmed: true,
+    undoPlan: computeQueryPresetDeleteUndoPlan(presets, b),
+    wasDefault: false,
+    wasActive: true,    // Beta was active
+    presetsAfter: deleteQueryPresetById(presets, "sv-b"),
+    undoNotice: null,
+  };
+
+  const state = computeDeleteQueryPresetState({
+    result: flowResult,
+    visibleTabs: [a, b, c],
+    view: b,
+  });
+
+  assert.deepEqual(state.presetsAfter.map((p) => p.id), ["sv-a", "sv-c"]);
+  assert.equal(state.shouldSwitchActive, true);
+  assert.ok(state.nextActiveView);
+  assert.equal(state.nextActiveView.id, "sv-a", "should switch to first remaining visible tab (Alpha)");
+  assert.equal(state.newDefaultId, null);
+});
+
+test("VAL-GUI-004: computeDeleteQueryPresetState — both default+active fallback when deleted tab was both", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Alpha IS default AND active. Deleting Alpha.
+  const flowResult = {
+    confirmed: true,
+    undoPlan: computeQueryPresetDeleteUndoPlan(presets, a),
+    wasDefault: true,
+    wasActive: true,
+    presetsAfter: deleteQueryPresetById(presets, "sv-a"),
+    undoNotice: null,
+  };
+
+  const state = computeDeleteQueryPresetState({
+    result: flowResult,
+    visibleTabs: [a, b, c],
+    view: a,
+  });
+
+  assert.deepEqual(state.presetsAfter.map((p) => p.id), ["sv-b", "sv-c"]);
+  assert.equal(state.newDefaultId, "sv-b", "default falls back to Beta");
+  assert.equal(state.shouldSwitchActive, true);
+  assert.ok(state.nextActiveView);
+  assert.equal(state.nextActiveView.id, "sv-b", "active switches to Beta");
+});
+
+test("VAL-GUI-004: computeUndoQueryPresetState — restores deleted tab at original position", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Delete Beta (index 1)
+  const undoPlan = computeQueryPresetDeleteUndoPlan(presets, b);
+  const afterDelete = deleteQueryPresetById(presets, "sv-b");
+
+  const undoState = computeUndoQueryPresetState({
+    presets: afterDelete,
+    undoPlan,
+    wasDefault: false,
+    wasActive: true,  // Beta was active
+  });
+
+  assert.deepEqual(undoState.presetsRestored.map((p) => p.id), ["sv-a", "sv-b", "sv-c"],
+    "undo restores Beta at original position (index 1)");
+  assert.equal(undoState.restoredDefaultId, null, "was not default");
+  assert.equal(undoState.shouldRestoreActive, true, "should restore active tab");
+  assert.ok(undoState.restoredView);
+  assert.equal(undoState.restoredView.id, "sv-b");
+  assert.equal(undoState.restoredView.name, "Beta");
+  assert.deepEqual(undoState.restoredView.filters.status, ["done"]);
+});
+
+test("VAL-GUI-004: computeUndoQueryPresetState — restores default when deleted tab was default", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const presets = [a, b];
+
+  // Delete Alpha (index 0, was default)
+  const undoPlan = computeQueryPresetDeleteUndoPlan(presets, a);
+  const afterDelete = deleteQueryPresetById(presets, "sv-a");
+
+  const undoState = computeUndoQueryPresetState({
+    presets: afterDelete,
+    undoPlan,
+    wasDefault: true,
+    wasActive: true,  // Alpha was both default and active
+  });
+
+  assert.deepEqual(undoState.presetsRestored.map((p) => p.id), ["sv-a", "sv-b"],
+    "undo restores Alpha at original position (index 0)");
+  assert.equal(undoState.restoredDefaultId, "sv-a", "default restored to Alpha");
+  assert.equal(undoState.shouldRestoreActive, true);
+  assert.ok(undoState.restoredView);
+  assert.equal(undoState.restoredView.id, "sv-a");
+});
+
+test("VAL-GUI-004: computeUndoQueryPresetState — handles deleted tab that was neither default nor active", () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Delete Beta (neither default nor active)
+  const undoPlan = computeQueryPresetDeleteUndoPlan(presets, b);
+  const afterDelete = deleteQueryPresetById(presets, "sv-b");
+
+  const undoState = computeUndoQueryPresetState({
+    presets: afterDelete,
+    undoPlan,
+    wasDefault: false,
+    wasActive: false,
+  });
+
+  assert.deepEqual(undoState.presetsRestored.map((p) => p.id), ["sv-a", "sv-b", "sv-c"]);
+  assert.equal(undoState.restoredDefaultId, null);
+  assert.equal(undoState.shouldRestoreActive, false, "no active restore needed");
+  assert.equal(undoState.restoredView, null);
+});
+
+test("VAL-GUI-004: computeUndoQueryPresetState — preserves all snapshot fields through undo", () => {
+  // Full matrix+section+tray+summary preset
+  const rich = normalizeQueryPreset({
+    id: "sv-full",
+    name: "Full View",
+    builtin: false,
+    hidden: false,
+    filters: {
+      search: "deep work",
+      tags: ["#focus", "#priority"],
+      status: ["todo", "in_progress"],
+      time: { scheduled: "week", deadline: "overdue", completed: "month" },
+    },
+    view: {
+      type: "matrix",
+      sections: [
+        { id: "urgent", title: "Urgent", when: { time: { deadline: "overdue" } }, limit: 5, orderBy: ["deadline_asc"] },
+      ],
+      tray: {
+        enabled: true,
+        title: "Backlog",
+        filters: { status: ["todo"], time: { scheduled: "unscheduled" } },
+        orderBy: ["deadline_asc"],
+      },
+      matrix: {
+        x: { id: "pri", title: "Priority", buckets: [{ id: "high", title: "High", when: { tags: ["#high"] } }] },
+        y: { id: "stat", title: "Status", buckets: [{ id: "open", title: "Open", when: { status: ["todo"] } }] },
+        unmatched: "hide",
+        multiMatch: "duplicate",
+        showEmptyBuckets: false,
+      },
+      orderBy: ["deadline_asc", "created_desc"],
+    },
+    summary: [
+      { type: "count" },
+      { type: "sum", field: "planned", format: "duration" },
+      { type: "ratio", numerator: "actual", denominator: "estimate", format: "percent" },
+      { type: "top_n", by: "tags", limit: 5 },
+      { type: "group_by", by: "tags" },
+    ],
+  });
+
+  const other = createQueryPreset("Other", { status: "all" }, () => "sv-other");
+  const presets = [other, rich];
+
+  const undoPlan = computeQueryPresetDeleteUndoPlan(presets, rich);
+  const afterDelete = deleteQueryPresetById(presets, "sv-full");
+
+  const undoState = computeUndoQueryPresetState({
+    presets: afterDelete,
+    undoPlan,
+    wasDefault: false,
+    wasActive: true,
+  });
+
+  assert.equal(undoState.presetsRestored.length, 2);
+  const restored = undoState.presetsRestored.find((p) => p.id === "sv-full");
+  assert.ok(restored);
+  assert.equal(restored.name, "Full View");
+  assert.deepEqual(restored.filters, undoPlan.snapshot.filters);
+  assert.deepEqual(restored.view, undoPlan.snapshot.view);
+  assert.deepEqual(restored.summary, undoPlan.snapshot.summary);
+  assert.equal(restored.view.matrix.x.id, "pri");
+  assert.equal(restored.view.matrix.unmatched, "hide");
+  assert.equal(restored.summary[3].by, "tags");
+  assert.equal(undoState.restoredView?.id, "sv-full");
+  assert.equal(undoState.shouldRestoreActive, true);
+});
+
+// ── Full confirm-delete-undo production-path with Modal/Notice stubs ──
+// These tests exercise the exact production flow that
+// TaskCenterView.deleteSavedViewWithConfirm follows:
+//   executeDeleteQueryPresetFlow → computeDeleteQueryPresetState
+//   → undo click → computeUndoQueryPresetState
+// with stub callbacks that simulate real Modal confirm + Notice undo click.
+
+test("VAL-GUI-004 production view-path: confirm → delete → compute state → undo → restore all", async () => {
+  // Set up: 3 presets, default=Alpha, active=Beta. Delete Beta.
+  const a = createQueryPreset("Alpha", {
+    search: "focus",
+    tags: ["#work"],
+    status: ["todo"],
+    time: { scheduled: "week", deadline: "overdue" },
+    view: { type: "week", orderBy: ["deadline_risk"] },
+    summary: [{ type: "count" }, { type: "sum", field: "planned" }],
+  }, () => "sv-a");
+  const b = createQueryPreset("Beta", {
+    search: "docs",
+    tags: ["#docs"],
+    status: ["done"],
+    view: { type: "list" },
+    summary: [{ type: "count" }],
+  }, () => "sv-b");
+  const c = createQueryPreset("Gamma", {
+    search: "meetings",
+    tags: ["#meeting"],
+    status: ["todo", "done"],
+    view: { type: "month" },
+    summary: [],
+  }, () => "sv-c");
+  const presets = [a, b, c];
+
+  const normalizedCopies = presets.map((p) => normalizeQueryPreset(p));
+  const normalizedB = normalizedCopies[1];
+
+  let confirmCalledWith = null;
+  let undoHandler = null;
+  let noticeClosed = false;
+
+  // Step 1: executeDeleteQueryPresetFlow (with Modal/Notice stubs)
+  const flowResult = await executeDeleteQueryPresetFlow(
+    presets,
+    normalizedB,
+    "sv-a",   // Alpha is default
+    "sv-b",   // Beta is active
+    {
+      confirm: async (viewName) => {
+        confirmCalledWith = viewName;
+        return true; // User confirms deletion
+      },
+      createUndoNotice: (viewName, undoLabel) => {
+        let handler = null;
+        return {
+          onUndoClick: (h) => { handler = h; },
+          close: () => { noticeClosed = true; },
+          // Expose for test
+          getHandler: () => handler,
+        };
+      },
+      showRestoredNotice: () => {},
+    },
+  );
+
+  assert.equal(flowResult.confirmed, true);
+  assert.equal(confirmCalledWith, "Beta");
+
+  // Step 2: computeDeleteQueryPresetState (view.ts production path)
+  const deleteState = computeDeleteQueryPresetState({
+    result: flowResult,
+    visibleTabs: [a, b, c],
+    view: normalizedB,
+  });
+
+  assert.deepEqual(deleteState.presetsAfter.map((p) => p.id), ["sv-a", "sv-c"]);
+  assert.equal(deleteState.newDefaultId, null, "default was Alpha, not Beta");
+  assert.equal(deleteState.shouldSwitchActive, true, "Beta was active, switch needed");
+  assert.ok(deleteState.nextActiveView);
+  assert.equal(deleteState.nextActiveView.id, "sv-a", "switches to Alpha");
+
+  // Simulate view applying the state (as deleteSavedViewWithConfirm does)
+  const appliedPresets = deleteState.presetsAfter;
+
+  // Step 3: Click undo → register handler and execute
+  undoHandler = flowResult.undoNotice?.getHandler();
+  // Simulate view wiring the undo handler (as deleteSavedViewWithConfirm does)
+  flowResult.undoNotice?.onUndoClick(async () => {
+    flowResult.undoNotice?.close();
+    // ... the view would apply computeUndoQueryPresetState here
+  });
+
+  // Step 4: computeUndoQueryPresetState (view.ts production path)
+  const undoState = computeUndoQueryPresetState({
+    presets: appliedPresets,
+    undoPlan: flowResult.undoPlan,
+    wasDefault: flowResult.wasDefault,
+    wasActive: flowResult.wasActive,
+  });
+
+  assert.deepEqual(undoState.presetsRestored.map((p) => p.id), ["sv-a", "sv-b", "sv-c"],
+    "undo restores Beta at original position (index 1)");
+
+  // Verify order restoration
+  assert.equal(undoState.presetsRestored[0].id, "sv-a", "Alpha stays first");
+  assert.equal(undoState.presetsRestored[1].id, "sv-b", "Beta restored at index 1");
+  assert.equal(undoState.presetsRestored[2].id, "sv-c", "Gamma stays last");
+
+  // Verify default/active restoration
+  assert.equal(undoState.restoredDefaultId, null, "wasDefault=false, no default restore");
+  assert.equal(undoState.shouldRestoreActive, true, "wasActive=true, restore active");
+  assert.ok(undoState.restoredView);
+  assert.equal(undoState.restoredView.id, "sv-b", "Beta restored as active tab");
+
+  // Verify snapshot content preserved
+  const restoredBeta = undoState.presetsRestored[1];
+  assert.equal(restoredBeta.name, "Beta");
+  assert.deepEqual(restoredBeta.filters.search, "docs");
+  assert.deepEqual(restoredBeta.filters.tags, ["#docs"]);
+  assert.deepEqual(restoredBeta.filters.status, ["done"]);
+  assert.deepEqual(restoredBeta.view, { type: "list" });
+  assert.equal(restoredBeta.summary.length, 1);
+});
+
+test("VAL-GUI-004 production view-path: delete default+active tab → undo restores both default and active", async () => {
+  // Alpha is both default and active. Delete Alpha. Undo restores both.
+  const a = createQueryPreset("Alpha", {
+    search: "main",
+    tags: ["#primary"],
+    status: ["todo"],
+    view: { type: "list", preset: "today" },
+    summary: [{ type: "count" }],
+  }, () => "sv-a");
+  const b = createQueryPreset("Beta", {
+    search: "secondary",
+    tags: ["#beta"],
+    status: ["done"],
+    view: { type: "week" },
+    summary: [],
+  }, () => "sv-b");
+  const presets = [a, b];
+
+  const normalizedCopies = presets.map((p) => normalizeQueryPreset(p));
+  const normalizedA = normalizedCopies[0];
+
+  // Step 1: executeDeleteQueryPresetFlow
+  const flowResult = await executeDeleteQueryPresetFlow(
+    presets,
+    normalizedA,
+    "sv-a",   // Alpha IS default
+    "sv-a",   // Alpha IS active
+    {
+      confirm: async () => true,
+      createUndoNotice: () => ({
+        onUndoClick: () => {},
+        close: () => {},
+      }),
+      showRestoredNotice: () => {},
+    },
+  );
+
+  assert.equal(flowResult.confirmed, true);
+  assert.equal(flowResult.wasDefault, true);
+  assert.equal(flowResult.wasActive, true);
+
+  // Step 2: compute delete state
+  const deleteState = computeDeleteQueryPresetState({
+    result: flowResult,
+    visibleTabs: [a, b],
+    view: normalizedA,
+  });
+
+  assert.deepEqual(deleteState.presetsAfter.map((p) => p.id), ["sv-b"]);
+  assert.equal(deleteState.newDefaultId, "sv-b", "default falls back to Beta");
+  assert.equal(deleteState.shouldSwitchActive, true);
+  assert.equal(deleteState.nextActiveView?.id, "sv-b");
+
+  // Step 3: compute undo state
+  const undoState = computeUndoQueryPresetState({
+    presets: deleteState.presetsAfter,
+    undoPlan: flowResult.undoPlan,
+    wasDefault: true,
+    wasActive: true,
+  });
+
+  assert.deepEqual(undoState.presetsRestored.map((p) => p.id), ["sv-a", "sv-b"]);
+  assert.equal(undoState.restoredDefaultId, "sv-a", "default restored to Alpha");
+  assert.equal(undoState.shouldRestoreActive, true);
+  assert.equal(undoState.restoredView?.id, "sv-a", "Alpha restored as active tab");
+
+  // Verify restored Alpha has all fields
+  const restoredAlpha = undoState.presetsRestored[0];
+  assert.equal(restoredAlpha.name, "Alpha");
+  assert.deepEqual(restoredAlpha.filters.tags, ["#primary"]);
+  assert.equal(restoredAlpha.view.type, "list");
+  assert.equal(restoredAlpha.view.preset, "today");
+  assert.equal(restoredAlpha.summary.length, 1);
+});
+
+test("VAL-GUI-004 production view-path: cancel confirm → no state change", async () => {
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("Gamma", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  const normalizedCopies = presets.map((p) => normalizeQueryPreset(p));
+
+  const flowResult = await executeDeleteQueryPresetFlow(
+    presets,
+    normalizedCopies[1],
+    "sv-a",
+    "sv-b",
+    {
+      confirm: async () => false, // User cancels
+      createUndoNotice: () => ({ onUndoClick: () => {}, close: () => {} }),
+      showRestoredNotice: () => {},
+    },
+  );
+
+  assert.equal(flowResult.confirmed, false);
+  assert.equal(flowResult.undoPlan, null);
+  assert.deepEqual(flowResult.presetsAfter, presets, "no change when cancelled");
+});
+
+test("VAL-GUI-004 production view-path: Notice undo click drives full restore callback", async () => {
+  // This test verifies the exact undo wiring pattern used by
+  // deleteSavedViewWithConfirm: onUndoClick registers a handler,
+  // the handler is callable, and when called it triggers close()
+  // and the view's undo logic.
+
+  const a = createQueryPreset("Alpha", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("Beta", { status: "done" }, () => "sv-b");
+  const presets = [a, b];
+
+  let undoClickHandler = null;
+  let closed = false;
+  let handlerExecuted = false;
+
+  const flowResult = await executeDeleteQueryPresetFlow(
+    presets,
+    b,
+    null,
+    "sv-b",
+    {
+      confirm: async () => true,
+      createUndoNotice: () => ({
+        onUndoClick: (handler) => {
+          undoClickHandler = handler;
+        },
+        close: () => { closed = true; },
+      }),
+      showRestoredNotice: () => {},
+    },
+  );
+
+  assert.equal(flowResult.confirmed, true);
+
+  // Simulate the view's undo handler wiring (exactly as deleteSavedViewWithConfirm does)
+  flowResult.undoNotice?.onUndoClick(async () => {
+    flowResult.undoNotice?.close();
+
+    // This is where the view calls computeUndoQueryPresetState & applies settings
+    const undoState = computeUndoQueryPresetState({
+      presets: flowResult.presetsAfter,
+      undoPlan: flowResult.undoPlan,
+      wasDefault: flowResult.wasDefault,
+      wasActive: flowResult.wasActive,
+    });
+
+    handlerExecuted = true;
+
+    // Verify undo restored correctly
+    assert.deepEqual(undoState.presetsRestored.map((p) => p.id), ["sv-a", "sv-b"]);
+    assert.equal(undoState.restoredView?.id, "sv-b");
+    assert.equal(undoState.shouldRestoreActive, true);
+  });
+
+  // Now simulate the user clicking the undo link in the Notice
+  assert.ok(undoClickHandler, "undo click handler must be registered");
+  await undoClickHandler();
+
+  assert.equal(handlerExecuted, true, "undo handler should have been executed");
+});
+
+test("VAL-GUI-004 production view-path: undo preserves full QueryPreset fields (matrix/sections/tray/summary)", async () => {
+  // Comprehensive test: rich preset with all view config fields
+  const rich = normalizeQueryPreset({
+    id: "sv-rich",
+    name: "Rich Tab",
+    builtin: false,
+    hidden: false,
+    filters: {
+      search: "deep work",
+      tags: ["#focus", "#priority"],
+      status: ["todo", "in_progress"],
+      time: { scheduled: "week", deadline: "overdue", completed: "month" },
+    },
+    view: {
+      type: "matrix",
+      sections: [
+        { id: "urgent", title: "Urgent", when: { time: { deadline: "overdue" } }, limit: 5, orderBy: ["deadline_asc"] },
+      ],
+      tray: {
+        enabled: true,
+        title: "Backlog",
+        filters: { status: ["todo"], time: { scheduled: "unscheduled" } },
+        orderBy: ["deadline_asc"],
+      },
+      matrix: {
+        x: {
+          id: "pri",
+          title: "Priority",
+          buckets: [
+            { id: "high", title: "High", when: { tags: ["#high"] } },
+            { id: "low", title: "Low", when: { tags: ["#low"] } },
+          ],
+        },
+        y: {
+          id: "stat",
+          title: "Status",
+          buckets: [
+            { id: "open", title: "Open", when: { status: ["todo"] } },
+            { id: "done", title: "Done", when: { status: ["done"] } },
+          ],
+        },
+        unmatched: "hide",
+        multiMatch: "duplicate",
+        showEmptyBuckets: false,
+      },
+      orderBy: ["deadline_asc", "created_desc"],
+    },
+    summary: [
+      { type: "count" },
+      { type: "sum", field: "planned", format: "duration" },
+      { type: "ratio", numerator: "actual", denominator: "estimate", format: "percent" },
+      { type: "top_n", by: "tags", limit: 5 },
+      { type: "group_by", by: "tags" },
+    ],
+  });
+
+  const other = createQueryPreset("Other", { status: "all" }, () => "sv-other");
+  const presets = [other, rich];
+
+  let undoHandler = null;
+
+  const flowResult = await executeDeleteQueryPresetFlow(
+    presets,
+    rich,
+    null,
+    "sv-rich",
+    {
+      confirm: async () => true,
+      createUndoNotice: () => ({
+        onUndoClick: (handler) => { undoHandler = handler; },
+        close: () => {},
+      }),
+      showRestoredNotice: () => {},
+    },
+  );
+
+  assert.equal(flowResult.confirmed, true);
+  assert.equal(flowResult.presetsAfter.length, 1);
+
+  // Register undo handler (as view.ts does)
+  let undoApplied = false;
+  flowResult.undoNotice?.onUndoClick(async () => {
+    flowResult.undoNotice?.close();
+
+    const undoState = computeUndoQueryPresetState({
+      presets: flowResult.presetsAfter,
+      undoPlan: flowResult.undoPlan,
+      wasDefault: flowResult.wasDefault,
+      wasActive: flowResult.wasActive,
+    });
+
+    undoApplied = true;
+
+    assert.equal(undoState.presetsRestored.length, 2);
+    const restored = undoState.presetsRestored.find((p) => p.id === "sv-rich");
+    assert.ok(restored);
+
+    // Verify ALL fields survived the roundtrip
+    assert.equal(restored.name, "Rich Tab");
+    assert.equal(restored.filters.search, "deep work");
+    assert.deepEqual(restored.filters.tags, ["#focus", "#priority"]);
+    assert.deepEqual(restored.filters.status, ["todo", "in_progress"]);
+    assert.deepEqual(restored.filters.time, {
+      scheduled: "week", deadline: "overdue", completed: "month",
+    });
+
+    // View sections
+    assert.equal(restored.view.type, "matrix");
+    assert.equal(restored.view.sections.length, 1);
+    assert.equal(restored.view.sections[0].id, "urgent");
+    assert.equal(restored.view.sections[0].limit, 5);
+
+    // Tray
+    assert.ok(restored.view.tray);
+    assert.equal(restored.view.tray.title, "Backlog");
+
+    // Matrix
+    assert.ok(restored.view.matrix);
+    assert.equal(restored.view.matrix.x.id, "pri");
+    assert.equal(restored.view.matrix.x.buckets.length, 2);
+    assert.equal(restored.view.matrix.y.id, "stat");
+    assert.equal(restored.view.matrix.y.buckets.length, 2);
+    assert.equal(restored.view.matrix.unmatched, "hide");
+    assert.equal(restored.view.matrix.multiMatch, "duplicate");
+    assert.equal(restored.view.matrix.showEmptyBuckets, false);
+
+    // OrderBy
+    assert.deepEqual(restored.view.orderBy, ["deadline_asc", "created_desc"]);
+
+    // Summary — all 5 types
+    assert.equal(restored.summary.length, 5);
+    assert.equal(restored.summary[0].type, "count");
+    assert.equal(restored.summary[1].type, "sum");
+    assert.equal(restored.summary[1].field, "planned");
+    assert.equal(restored.summary[2].type, "ratio");
+    assert.equal(restored.summary[3].type, "top_n");
+    assert.equal(restored.summary[3].by, "tags");
+    assert.equal(restored.summary[4].type, "group_by");
+  });
+
+  // Click undo
+  await undoHandler();
+  assert.equal(undoApplied, true);
 });
 
 // ── fix-m3-query-editor-production-path-tests ──

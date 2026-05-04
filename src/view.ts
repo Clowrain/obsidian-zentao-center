@@ -42,8 +42,9 @@ import {
   applyQueryPresetFilters,
   builtinSavedViewId,
   computeQueryPresetSnapshot,
+  computeDeleteQueryPresetState,
+  computeUndoQueryPresetState,
   executeDeleteQueryPresetFlow,
-  executeQueryPresetDeleteUndo,
   restoreBuiltinQueryPresetById,
   restoreBuiltinQueryPresets,
   clearQueryPresetFilters as emptySavedViewFilters,
@@ -1408,7 +1409,7 @@ export class TaskCenterView extends ItemView {
    * Delegates to the pure `executeDeleteQueryPresetFlow` helper so the
    * confirm / delete / undo logic is unit-testable without DOM.
    */
-  private async deleteSavedViewWithConfirm(view: QueryPreset): Promise<void> {
+  async deleteSavedViewWithConfirm(view: QueryPreset): Promise<void> {
     const visible = this.visibleQueryTabs();
     if (visible.length <= 1 && visible[0]?.id === view.id) {
       new Notice(tr("notice.error", { msg: "至少保留一个可见 Tab。" }), 4000);
@@ -1474,17 +1475,22 @@ export class TaskCenterView extends ItemView {
 
     if (!result.confirmed) return;
 
+    // Compute post-delete state from pure functions
+    const deleteState = computeDeleteQueryPresetState({
+      result,
+      visibleTabs: visible,
+      view,
+    });
+
     // Apply the deletion to plugin state
-    this.plugin.settings.queryPresets = result.presetsAfter;
+    this.plugin.settings.queryPresets = deleteState.presetsAfter;
     this.tabDrafts.delete(view.id);
 
-    // Handle default/active fallback after deletion
-    if (result.wasDefault) {
-      this.plugin.settings.defaultSavedViewId = this.visibleQueryTabs()[0]?.id ?? null;
+    if (deleteState.newDefaultId !== null) {
+      this.plugin.settings.defaultSavedViewId = deleteState.newDefaultId;
     }
-    if (result.wasActive) {
-      const next = this.visibleQueryTabs()[0];
-      if (next) this.applySavedView(next);
+    if (deleteState.shouldSwitchActive && deleteState.nextActiveView) {
+      this.applySavedView(deleteState.nextActiveView);
     }
 
     await this.plugin.saveSettings();
@@ -1494,21 +1500,22 @@ export class TaskCenterView extends ItemView {
     result.undoNotice?.onUndoClick(async () => {
       result.undoNotice?.close();
 
-      // Re-insert snapshot at original position
-      this.plugin.settings.queryPresets = executeQueryPresetDeleteUndo(
-        this.plugin.settings.queryPresets,
-        result.undoPlan!,
-      );
+      // Compute post-undo state from pure functions
+      const undoState = computeUndoQueryPresetState({
+        presets: this.plugin.settings.queryPresets,
+        undoPlan: result.undoPlan!,
+        wasDefault: result.wasDefault,
+        wasActive: result.wasActive,
+      });
+
+      this.plugin.settings.queryPresets = undoState.presetsRestored;
       this.tabDrafts.delete(result.undoPlan!.snapshot.id);
 
-      if (result.wasDefault) {
-        this.plugin.settings.defaultSavedViewId = result.undoPlan!.snapshot.id;
+      if (undoState.restoredDefaultId !== null) {
+        this.plugin.settings.defaultSavedViewId = undoState.restoredDefaultId;
       }
-      if (result.wasActive) {
-        const restored = this.plugin.settings.queryPresets.find(
-          (p) => p.id === result.undoPlan!.snapshot.id,
-        );
-        if (restored) this.applySavedView(restored);
+      if (undoState.shouldRestoreActive && undoState.restoredView) {
+        this.applySavedView(undoState.restoredView);
       }
 
       await this.plugin.saveSettings();

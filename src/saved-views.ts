@@ -1425,6 +1425,98 @@ export async function executeDeleteQueryPresetFlow(
   };
 }
 
+// ── Production-path: delete + undo view state computation ──
+
+/**
+ * Post-delete state computed from a confirmed deletion flow result.
+ * Pure — no DOM, no settings mutation.  The caller (view.ts) applies
+ * these values to plugin settings and triggers save/render.
+ */
+export interface DeleteQueryPresetViewState {
+  /** Presets array after deletion (same as result.presetsAfter). */
+  presetsAfter: QueryPreset[];
+  /** New defaultSavedViewId when the deleted tab was the default. */
+  newDefaultId: string | null;
+  /** Whether active tab should be switched. */
+  shouldSwitchActive: boolean;
+  /** The next visible tab to activate, or null. */
+  nextActiveView: QueryPreset | null;
+}
+
+/**
+ * Compute the state that should be applied to plugin settings immediately
+ * after a confirmed deletion.  Pure — callers wire side effects.
+ *
+ * Used by `TaskCenterView.deleteSavedViewWithConfirm` to derive the
+ * settings mutation from the flow result + visible tabs.
+ */
+export function computeDeleteQueryPresetState(params: {
+  result: QueryPresetDeleteFlowResult;
+  /** Visible (non-hidden) tabs BEFORE deletion. */
+  visibleTabs: QueryPreset[];
+  /** The view being deleted. */
+  view: QueryPreset;
+}): DeleteQueryPresetViewState {
+  const presetsAfter = params.result.presetsAfter;
+  let newDefaultId: string | null = null;
+  let shouldSwitchActive = false;
+  let nextActiveView: QueryPreset | null = null;
+
+  if (params.result.wasDefault) {
+    newDefaultId = params.visibleTabs.find((t) => t.id !== params.view.id)?.id ?? null;
+  }
+  if (params.result.wasActive) {
+    shouldSwitchActive = true;
+    nextActiveView = params.visibleTabs.find((t) => t.id !== params.view.id) ?? null;
+  }
+
+  return { presetsAfter, newDefaultId, shouldSwitchActive, nextActiveView };
+}
+
+/**
+ * Post-undo state computed from the undo plan and current presets.
+ * Pure — no DOM, no settings mutation.
+ */
+export interface UndoQueryPresetViewState {
+  /** Presets array after re-inserting the snapshot. */
+  presetsRestored: QueryPreset[];
+  /** Restored defaultSavedViewId, or null. */
+  restoredDefaultId: string | null;
+  /** Whether the active tab should be restored. */
+  shouldRestoreActive: boolean;
+  /** The restored QueryPreset to activate, or null. */
+  restoredView: QueryPreset | null;
+}
+
+/**
+ * Compute the state that should be applied to plugin settings when the
+ * user clicks the undo button.  Pure — callers wire side effects.
+ *
+ * Used by the undo handler inside `TaskCenterView.deleteSavedViewWithConfirm`.
+ */
+export function computeUndoQueryPresetState(params: {
+  presets: readonly QueryPreset[];
+  undoPlan: QueryPresetDeleteUndoPlan;
+  wasDefault: boolean;
+  wasActive: boolean;
+}): UndoQueryPresetViewState {
+  const presetsRestored = executeQueryPresetDeleteUndo(params.presets, params.undoPlan);
+
+  let restoredDefaultId: string | null = null;
+  let shouldRestoreActive = false;
+  let restoredView: QueryPreset | null = null;
+
+  if (params.wasDefault) {
+    restoredDefaultId = params.undoPlan.snapshot.id;
+  }
+  if (params.wasActive) {
+    restoredView = presetsRestored.find((p) => p.id === params.undoPlan.snapshot.id) ?? null;
+    shouldRestoreActive = restoredView !== null;
+  }
+
+  return { presetsRestored, restoredDefaultId, shouldRestoreActive, restoredView };
+}
+
 // ── Query Editor production-path helpers ──
 
 /**
