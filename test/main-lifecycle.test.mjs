@@ -931,6 +931,147 @@ test("query-update: non-existent preset id throws query_not_found, leaves settin
 
 // ── End CLI query-save / query-update negative tests ──
 
+// ── CLI query-create ──
+// VAL-CLI-006: query-create is an alias that reuses query-save implementation
+// (stable id, invalid_query rejection, does not overwrite existing presets).
+
+test("query-create 创建新 preset，输出稳定 id，且不覆盖已有 preset", async () => {
+  const { plugin, calls } = await createPluginForQueryCli({
+    queryPresets: [
+      {
+        id: "sv-existing",
+        name: "Existing",
+        builtin: false,
+        hidden: false,
+        filters: { status: ["todo"] },
+        view: { type: "list" },
+        summary: [],
+      },
+    ],
+  });
+
+  await withDeterministicSavedViewId(async () => {
+    const result = await plugin.cliQuerySave({
+      dsl: JSON.stringify({
+        name: " New via Create ",
+        filters: {
+          search: " focus ",
+          tags: ["#work"],
+          status: ["todo"],
+        },
+        view: { type: "week" },
+        summary: [{ type: "count" }],
+      }),
+    });
+
+    assert.match(result, /^ok  sv-/);
+    assert.match(result, /saved query preset/);
+    assert.match(result, /New via Create/);
+  });
+
+  // Existing preset unchanged
+  assert.equal(plugin.settings.queryPresets.length, 2);
+  assert.equal(plugin.settings.queryPresets[0].id, "sv-existing");
+  assert.equal(plugin.settings.queryPresets[0].name, "Existing");
+
+  // New preset created with stable id
+  const created = plugin.settings.queryPresets[1];
+  assert.match(created.id, /^sv-[a-z0-9]+-4fzz$/);
+  assert.equal(created.name, "New via Create");
+  assert.equal(created.filters.search, "focus");
+  assert.deepEqual(created.filters.tags, ["#work"]);
+  assert.deepEqual(created.view, { type: "week" });
+  assert.deepEqual(created.summary, [{ type: "count" }]);
+  assert.equal(calls.save, 1);
+  assert.equal(calls.refresh, 1);
+});
+
+test("query-create rejects legacy flat SavedTaskView DSL with invalid_query, leaves state unchanged", async () => {
+  const { plugin, calls } = await createPluginForQueryCli({
+    queryPresets: [
+      {
+        id: "sv-alpha",
+        name: "Alpha",
+        builtin: false,
+        hidden: false,
+        filters: { search: "focus", tags: ["#alpha"], status: ["todo"] },
+        view: { type: "list" },
+        summary: [],
+      },
+    ],
+  });
+
+  const legacyDsl = JSON.stringify({
+    name: "Legacy via Create",
+    search: "docs",
+    tag: "#work",
+    time: { scheduled: "today" },
+    status: "todo",
+    view: { type: "list" },
+  });
+
+  await assert.rejects(
+    () => plugin.cliQuerySave({ dsl: legacyDsl }),
+    (err) => err.code === "invalid_query" && /旧版 SavedTaskView 扁平格式/.test(err.message),
+  );
+
+  // Presets unchanged — no save/refresh side effects
+  assert.equal(plugin.settings.queryPresets.length, 1);
+  assert.equal(plugin.settings.queryPresets[0].id, "sv-alpha");
+  assert.equal(calls.save, 0);
+  assert.equal(calls.refresh, 0);
+});
+
+test("query-create rejects invalid QueryPreset DSL (unknown view type) with invalid_query", async () => {
+  const { plugin, calls } = await createPluginForQueryCli();
+
+  const invalidDsl = JSON.stringify({
+    name: "Bad View",
+    filters: {},
+    view: { type: "gantt" },
+    summary: [],
+  });
+
+  await assert.rejects(
+    () => plugin.cliQuerySave({ dsl: invalidDsl }),
+    (err) => err.code === "invalid_query" && /unknown_view_type/.test(err.message),
+  );
+
+  assert.equal(plugin.settings.queryPresets.length, 0);
+  assert.equal(calls.save, 0);
+  assert.equal(calls.refresh, 0);
+});
+
+test("query-create rejects invalid QueryPreset DSL (non-object root) with invalid_query", async () => {
+  const { plugin, calls } = await createPluginForQueryCli();
+
+  await assert.rejects(
+    () => plugin.cliQuerySave({ dsl: '"not an object"' }),
+    (err) => err.code === "invalid_query",
+  );
+
+  assert.equal(plugin.settings.queryPresets.length, 0);
+  assert.equal(calls.save, 0);
+  assert.equal(calls.refresh, 0);
+});
+
+// ── End CLI query-create tests ──
+
+// Verify query-create command is registered in CLI handlers
+test("plugin onload registers task-center:query-create as a CLI handler", async () => {
+  await compile();
+  const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}-${Math.random()}`);
+  const app = makeAppWithExistingTaskCenterView();
+  app.__viewCreators.clear();
+  const plugin = new TaskCenterPlugin(app);
+  await plugin.onload();
+
+  assert.ok(app.__cliHandlers.has("task-center:query-create"), "query-create should be registered as a CLI handler");
+  const handler = app.__cliHandlers.get("task-center:query-create");
+  assert.ok(handler, "handler should exist");
+  assert.equal(typeof handler.handler, "function", "handler should be a function");
+});
+
 // VAL-CLI-006: builtins cannot be permanently deleted via CLI
 test("query-delete rejects builtin query preset with invalid_query", async () => {
   const { plugin, calls } = await createPluginForQueryCli({

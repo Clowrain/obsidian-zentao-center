@@ -541,9 +541,20 @@ export default class TaskCenterPlugin extends Plugin {
       (args) => this.cliQueryShow(args),
     );
 
+    // VAL-CLI-006: query-create is an alias that reuses the same QueryPreset
+    // create implementation as query-save (stable id, invalid_query rejection).
     this.registerCliHandler(
       "task-center:query-save",
       "Create a saved query preset from DSL JSON",
+      {
+        dsl: { value: "<json>", description: "Query preset DSL as JSON", required: true },
+      },
+      (args) => this.cliQuerySave(args),
+    );
+
+    this.registerCliHandler(
+      "task-center:query-create",
+      "Create a saved query preset from DSL JSON (alias for query-save)",
       {
         dsl: { value: "<json>", description: "Query preset DSL as JSON", required: true },
       },
