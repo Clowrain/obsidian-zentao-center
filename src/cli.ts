@@ -160,7 +160,7 @@ export class TaskCenterApi {
 
   async show(id: string): Promise<ParsedTask> {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", `no task matches ${id}`);
+    if (!task) throw new TaskWriterError("not_found", `no task matches ${id}`);
     return task;
   }
 
@@ -184,7 +184,7 @@ export class TaskCenterApi {
       throw new TaskWriterError("invalid_date", `not ISO YYYY-MM-DD: ${date}`);
     }
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return await setScheduled(this.app, task, date);
   }
 
@@ -193,13 +193,13 @@ export class TaskCenterApi {
       throw new TaskWriterError("invalid_date", `not ISO YYYY-MM-DD: ${date}`);
     }
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return await setDeadline(this.app, task, date);
   }
 
   async actual(id: string, minutes: number, mode: "set" | "add" = "set") {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return mode === "add"
       ? await addToActual(this.app, task, minutes)
       : await setActual(this.app, task, minutes);
@@ -207,7 +207,7 @@ export class TaskCenterApi {
 
   async estimate(id: string, minutes: number | null) {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return await setEstimate(this.app, task, minutes);
   }
 
@@ -216,7 +216,7 @@ export class TaskCenterApi {
       throw new TaskWriterError("invalid_date", `--at requires YYYY-MM-DD: ${at}`);
     }
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     // US-145: completing a parent cascades to its `todo` descendants. Tasks
     // that are already `[x] / [-] / [>]` are left alone — overwriting their
     // recorded ✅ / ❌ / 🛫 dates would destroy history. Cross-file parent /
@@ -238,7 +238,7 @@ export class TaskCenterApi {
 
   async undone(id: string) {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return await markUndone(this.app, task);
   }
 
@@ -247,7 +247,7 @@ export class TaskCenterApi {
   // see USER_STORIES.md
   async drop(id: string, cascade = true) {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     // Cascade only to descendants that are still `todo` — don't overwrite a
     // done `[x] ✅ …` with a dropped `[-] ❌ …`; that would destroy history.
     // Cross-file parent/child relationships are not modelled (ARCHITECTURE
@@ -279,7 +279,7 @@ export class TaskCenterApi {
     let parent: ParsedTask | null = null;
     if (opts.parent) {
       parent = await this.cache.resolveRef(opts.parent);
-      if (!parent) throw new TaskWriterError("task_not_found", `parent: ${opts.parent}`);
+      if (!parent) throw new TaskWriterError("not_found", `parent: ${opts.parent}`);
     }
     return await addTask(this.app, {
       text: opts.text,
@@ -295,21 +295,21 @@ export class TaskCenterApi {
 
   async rename(id: string, newTitle: string) {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return await renameTask(this.app, task, newTitle);
   }
 
   async tag(id: string, tag: string, remove = false) {
     const task = await this.cache.resolveRef(id);
-    if (!task) throw new TaskWriterError("task_not_found", id);
+    if (!task) throw new TaskWriterError("not_found", id);
     return remove ? await removeTag(this.app, task, tag) : await addTag(this.app, task, tag);
   }
 
   async nest(childId: string, parentId: string) {
     const child = await this.cache.resolveRef(childId);
-    if (!child) throw new TaskWriterError("task_not_found", `child: ${childId}`);
+    if (!child) throw new TaskWriterError("not_found", `child: ${childId}`);
     const parent = await this.cache.resolveRef(parentId);
-    if (!parent) throw new TaskWriterError("task_not_found", `parent: ${parentId}`);
+    if (!parent) throw new TaskWriterError("not_found", `parent: ${parentId}`);
     return await nestUnder(this.app, child, parent);
   }
 }
@@ -993,7 +993,7 @@ export function formatOkWrite(
 
 // US-211 + US-412: error format = English `code` (stable for grep / AI)
 // + localized "一句人话". The English code stays English so scripts /
-// agents can match `error task_not_found` regardless of locale; the
+// agents can match `error not_found` regardless of locale; the
 // human message routes through the i18n table when a key exists.
 //
 // Falls back to the raw `message` when the i18n table doesn't have a

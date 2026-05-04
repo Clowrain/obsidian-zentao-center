@@ -103,7 +103,7 @@ async function mutateLine(
 ): Promise<{ before: string; after: string; mtime: number }> {
   const af = app.vault.getAbstractFileByPath(path);
   if (!af || !(af instanceof TFile)) {
-    throw new TaskWriterError("task_not_found", `file missing: ${path}`);
+    throw new TaskWriterError("not_found", `file missing: ${path}`);
   }
   let before = "";
   let after = "";
@@ -111,7 +111,7 @@ async function mutateLine(
     const lines = data.split("\n");
     if (line >= lines.length) {
       throw new TaskWriterError(
-        "task_not_found",
+        "not_found",
         `${path}:L${line + 1} — file has only ${lines.length} lines`,
       );
     }
@@ -119,7 +119,7 @@ async function mutateLine(
     const parsed = parseTaskLine(original);
     if (!parsed) {
       throw new TaskWriterError(
-        "task_not_found",
+        "not_found",
         `${path}:L${line + 1} — not a task line: ${original.slice(0, 60)}`,
       );
     }
@@ -431,13 +431,13 @@ export async function addTask(
         }).internalPlugins?.plugins?.["daily-notes"]?.instance?.options;
       if (!dnOpts) {
         throw new TaskWriterError(
-          "daily_notes_unavailable",
+          "daily_notes_missing",
           "Daily Notes plugin is disabled; enable and configure Daily Notes before adding tasks.",
         );
       }
       if (!dnOpts.folder) {
         throw new TaskWriterError(
-          "daily_notes_unavailable",
+          "daily_notes_folder_missing",
           "Daily Notes folder is not configured; set New file location before adding tasks.",
         );
       }
@@ -459,7 +459,7 @@ export async function addTask(
     }
     file = await app.vault.create(targetPath, "");
   } else if (!(af instanceof TFile)) {
-    throw new TaskWriterError("task_not_found", `target is not a file: ${targetPath}`);
+    throw new TaskWriterError("not_found", `target is not a file: ${targetPath}`);
   } else {
     file = af;
   }
@@ -742,7 +742,7 @@ export function applyUndoOps(
     const op = ops[i];
     const lines = out[op.path];
     if (!lines) {
-      throw new TaskWriterError("task_not_found", `undo: file missing ${op.path}`);
+      throw new TaskWriterError("not_found", `undo: file missing ${op.path}`);
     }
     for (let j = 0; j < op.after.length; j++) {
       if (lines[op.line + j] !== op.after[j]) {
@@ -804,7 +804,7 @@ export async function nestUnder(
   if (child.path === parent.path) {
     const file = app.vault.getAbstractFileByPath(child.path);
     if (!(file instanceof TFile)) {
-      throw new TaskWriterError("task_not_found", `file: ${child.path}`);
+      throw new TaskWriterError("not_found", `file: ${child.path}`);
     }
     let before = "";
     let after = "";
@@ -829,17 +829,17 @@ export async function nestUnder(
   const childFile = app.vault.getAbstractFileByPath(child.path);
   const parentFile = app.vault.getAbstractFileByPath(parent.path);
   if (!(childFile instanceof TFile)) {
-    throw new TaskWriterError("task_not_found", `child file: ${child.path}`);
+    throw new TaskWriterError("not_found", `child file: ${child.path}`);
   }
   if (!(parentFile instanceof TFile)) {
-    throw new TaskWriterError("task_not_found", `parent file: ${parent.path}`);
+    throw new TaskWriterError("not_found", `parent file: ${parent.path}`);
   }
 
   const childData = await app.vault.cachedRead(childFile);
   const childLinesSnapshot = childData.split("\n");
   if (childLinesSnapshot[child.line] !== child.rawLine) {
     throw new TaskWriterError(
-      "task_not_found",
+      "not_found",
       `${child.path}:L${child.line + 1} content drifted; reload tasks and retry`,
     );
   }
@@ -861,7 +861,7 @@ export async function nestUnder(
     const lines = data.split("\n");
     if (lines[parent.line] !== parent.rawLine) {
       throw new TaskWriterError(
-        "task_not_found",
+        "not_found",
         `${parent.path}:L${parent.line + 1} content drifted; reload tasks and retry`,
       );
     }

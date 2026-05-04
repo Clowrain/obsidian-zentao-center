@@ -513,6 +513,16 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
+      "task-center:rename",
+      "Rename a task title (preserves all metadata)",
+      {
+        ref: { value: "<id>", description: "Task id", required: true },
+        title: { value: "<text>", description: "New title text", required: true },
+      },
+      (args) => this.cliRename(args),
+    );
+
+    this.registerCliHandler(
       "task-center:query-list",
       "List saved query presets",
       {
@@ -829,6 +839,18 @@ export default class TaskCenterPlugin extends Plugin {
         ? `nested under ${parent.id} (cross-file)`
         : `nested under ${parent.id}`;
     return formatOkWrite(parent, null, null, r.before, r.after, r.unchanged, label, r.unchanged ? "unchanged" : undefined);
+  }
+
+  // US-227: `rename ref=<id> title=<new title>` — rename a task's title
+  // while preserving all metadata (tags, emoji dates, inline fields,
+  // block anchors). Unchanged when title already matches.
+  // see USER_STORIES.md
+  private async cliRename(args: CliArgs): Promise<string> {
+    const ref = requireArg(args.ref, "ref");
+    const title = requireArg(args.title, "title");
+    const r = await this.api.rename(ref, title);
+    const t = await this.api.show(ref);
+    return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, "renamed");
   }
 
   private cliQueryList(args: CliArgs): string {

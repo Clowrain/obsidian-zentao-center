@@ -74,16 +74,16 @@ test("US-412 — err.task_not_found key exists in both EN and ZH tables", async 
   // Currently FAILS: err.task_not_found doesn't exist as a key — the
   // error message is hard-coded in writer.ts/cli.ts.
   // After fix: the key resolves to an English template.
-  const enMsg = en.t("err.task_not_found", { ref: "x:L1" });
-  assert.notEqual(enMsg, "err.task_not_found", "EN err key must be defined");
+  const enMsg = en.t("err.not_found", { ref: "x:L1" });
+  assert.notEqual(enMsg, "err.not_found", "EN err key must be defined");
   assert.match(enMsg, /x:L1/);
 
   mockStorage.set("language", "zh");
   const zh = await import(
     `../test/.compiled/i18n.bundle.js?cachebust=${Date.now()}_zh`
   );
-  const zhMsg = zh.t("err.task_not_found", { ref: "x:L1" });
-  assert.notEqual(zhMsg, "err.task_not_found", "ZH err key must be defined");
+  const zhMsg = zh.t("err.not_found", { ref: "x:L1" });
+  assert.notEqual(zhMsg, "err.not_found", "ZH err key must be defined");
   assert.match(zhMsg, /x:L1/);
   // Must differ from EN (i.e., actually translated).
   assert.notEqual(zhMsg, enMsg);

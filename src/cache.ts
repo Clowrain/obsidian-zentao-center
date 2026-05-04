@@ -318,7 +318,7 @@ export class TaskCache {
    * `ensureAll` only when not already in `byHash`.
    *
    * Throws `TaskWriterError("ambiguous_slug")` for hash collisions and
-   * `TaskWriterError("task_not_found")` when the path:line target is gone.
+   * `TaskWriterError("not_found")` when the path:line target is gone.
    *
    * US-208: when `path:Lnnn` no longer points at the original task (file
    * shifted), the title-hash fallback in `parseTaskId` keeps the ref
@@ -331,14 +331,14 @@ export class TaskCache {
       const entry = await this.ensureFile(parsed.path);
       if (!entry) {
         throw new TaskWriterError(
-          "task_not_found",
+          "not_found",
           `file not found: ${parsed.path}`,
         );
       }
       const t = entry.tasks.find((task) => task.line === parsed.line);
       if (t) return t;
       throw new TaskWriterError(
-        "task_not_found",
+        "not_found",
         `${parsed.path}:L${(parsed.line ?? 0) + 1} is not a task line. Use \`task-center list\` to find valid refs.`,
       );
     }
