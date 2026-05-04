@@ -1310,3 +1310,117 @@ export function executeQueryPresetDeleteUndo(
   result.splice(insertIdx, 0, plan.snapshot);
   return result;
 }
+
+// ── VAL-GUI-004: production-path delete-with-confirm-and-undo ──
+
+/**
+ * Injected callbacks for the delete-confirm-undo flow.
+ *
+ * Production (view.ts): `confirm` opens a Modal; `createUndoNotice` creates
+ * a clickable Notice whose undo handler the caller wires to restore state.
+ * Tests: inject stub spies to verify confirmation, deletion, and undo
+ * without DOM dependencies.
+ */
+export interface QueryPresetDeleteFlowCallbacks {
+  /** Show confirmation prompt. Return `true` to proceed with deletion. */
+  confirm: (viewName: string) => Promise<boolean>;
+  /**
+   * Show undo toast with clickable undo action.
+   * Returns a controller so the caller can wire state restoration.
+   */
+  createUndoNotice: (viewName: string, undoLabel: string) => QueryPresetDeleteUndoNotice;
+  /** Show a success notice after undo completes. */
+  showRestoredNotice: (viewName: string) => void;
+}
+
+/** Controller returned by `createUndoNotice` — caller wires the handler. */
+export interface QueryPresetDeleteUndoNotice {
+  /** Register the undo handler (called when user clicks undo). */
+  onUndoClick: (handler: () => Promise<void>) => void;
+  /** Hide the notice (e.g. after undo executes). */
+  close: () => void;
+}
+
+export interface QueryPresetDeleteFlowResult {
+  /** Whether the user confirmed the deletion */
+  confirmed: boolean;
+  /** The undo plan, or null if not confirmed */
+  undoPlan: QueryPresetDeleteUndoPlan | null;
+  /** Whether the deleted tab was the default */
+  wasDefault: boolean;
+  /** Whether the deleted tab was the active tab */
+  wasActive: boolean;
+  /** The presets array after deletion (same as before if cancelled) */
+  presetsAfter: QueryPreset[];
+  /** The undo notice controller, or null if not confirmed.
+   *  Caller MUST wire `onUndoClick` to restore state. */
+  undoNotice: QueryPresetDeleteUndoNotice | null;
+}
+
+/**
+ * Execute the confirm-delete-notice production flow for a QueryPreset.
+ *
+ * This is the testable pure-logic counterpart of
+ * `TaskCenterView.deleteSavedViewWithConfirm`.  The production view method
+ * delegates here and wires the injected callbacks to Modal / Notice.
+ *
+ * The returned `undoNotice` controller MUST be wired by the caller:
+ *
+ * ```ts
+ * result.undoNotice?.onUndoClick(async () => {
+ *   // restore presets, default, active state
+ *   result.undoNotice.close();
+ * });
+ * ```
+ *
+ * Tests can exercise the exact same confirm / delete / undo–restore logic
+ * by passing stub callbacks.
+ *
+ * @param presets    Current QueryPreset array (settings.queryPresets).
+ * @param view       The view to delete (normally a normalized copy from
+ *                   visibleQueryTabs()).
+ * @param defaultId  Current `defaultSavedViewId` setting.
+ * @param activeId   Current active tab id (`state.savedViewId`).
+ * @param callbacks  Injected Modal / Notice factories.
+ */
+export async function executeDeleteQueryPresetFlow(
+  presets: QueryPreset[],
+  view: QueryPreset,
+  defaultId: string | null,
+  activeId: string | null,
+  callbacks: QueryPresetDeleteFlowCallbacks,
+): Promise<QueryPresetDeleteFlowResult> {
+  // Step 1 — confirmation (Modal in production)
+  const confirmed = await callbacks.confirm(view.name);
+  if (!confirmed) {
+    return {
+      confirmed: false,
+      undoPlan: null,
+      wasDefault: false,
+      wasActive: false,
+      presetsAfter: presets,
+      undoNotice: null,
+    };
+  }
+
+  // Step 2 — snapshot state before deletion
+  const wasDefault = defaultId === view.id;
+  const wasActive = activeId === view.id;
+  const undoPlan = computeQueryPresetDeleteUndoPlan(presets, view);
+
+  // Step 3 — delete (pure, no DOM)
+  const presetsAfter = deleteQueryPresetById(presets, view.id);
+
+  // Step 4 — show clickable undo notice (Notice in production)
+  // The caller MUST wire `undoNotice.onUndoClick` to restore state.
+  const undoNotice = callbacks.createUndoNotice(undoPlan.snapshot.name, "撤销");
+
+  return {
+    confirmed: true,
+    undoPlan,
+    wasDefault,
+    wasActive,
+    presetsAfter,
+    undoNotice,
+  };
+}

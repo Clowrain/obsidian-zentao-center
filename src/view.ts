@@ -41,7 +41,7 @@ import { taskMatchesTimeToken, timeTokenAppliesToField } from "./time-filter";
 import {
   applyQueryPresetFilters,
   builtinSavedViewId,
-  computeQueryPresetDeleteUndoPlan,
+  executeDeleteQueryPresetFlow,
   executeQueryPresetDeleteUndo,
   restoreBuiltinQueryPresetById,
   restoreBuiltinQueryPresets,
@@ -64,6 +64,9 @@ import {
   updateQueryPresetById,
   visibleQueryPresets,
   queryPresetTagString,
+} from "./saved-views";
+import type {
+  QueryPresetDeleteFlowCallbacks,
 } from "./saved-views";
 import type {
   QueryPreset,
@@ -1400,6 +1403,9 @@ export class TaskCenterView extends ItemView {
   /**
    * VAL-GUI-004: delete a custom tab with confirmation.
    * Shows "只删除这个视图，不删除任何任务" and provides toast undo.
+   *
+   * Delegates to the pure `executeDeleteQueryPresetFlow` helper so the
+   * confirm / delete / undo logic is unit-testable without DOM.
    */
   private async deleteSavedViewWithConfirm(view: QueryPreset): Promise<void> {
     const visible = this.visibleQueryTabs();
@@ -1407,70 +1413,107 @@ export class TaskCenterView extends ItemView {
       new Notice(tr("notice.error", { msg: "至少保留一个可见 Tab。" }), 4000);
       return;
     }
-    // Show confirmation dialog
-    const confirmed = await new Promise<boolean>((resolve) => {
-      const modal = new BottomSheet(this.app, {
-        title: tr("savedViews.deleteConfirmTitle"),
-        populate: (el) => {
-          el.createDiv({ cls: "bt-delete-confirm-body", text: tr("savedViews.deleteConfirmBody") });
-          el.createDiv({ cls: "bt-delete-confirm-detail", text: `"${view.name}"` });
-          const actions = el.createDiv({ cls: "bt-delete-confirm-actions" });
-          const cancel = actions.createEl("button", { text: tr("savedViews.cancel") });
-          cancel.addEventListener("click", () => { modal.close(); resolve(false); });
-          const del = actions.createEl("button", {
-            text: tr("savedViews.deleteConfirmAction"),
-            cls: "mod-warning",
+
+    const flowCallbacks: QueryPresetDeleteFlowCallbacks = {
+      confirm: async (viewName: string) => {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          const modal = new BottomSheet(this.app, {
+            title: tr("savedViews.deleteConfirmTitle"),
+            populate: (el) => {
+              el.createDiv({ cls: "bt-delete-confirm-body", text: tr("savedViews.deleteConfirmBody") });
+              el.createDiv({ cls: "bt-delete-confirm-detail", text: `"${viewName}"` });
+              const actions = el.createDiv({ cls: "bt-delete-confirm-actions" });
+              const cancel = actions.createEl("button", { text: tr("savedViews.cancel") });
+              cancel.addEventListener("click", () => { modal.close(); resolve(false); });
+              const del = actions.createEl("button", {
+                text: tr("savedViews.deleteConfirmAction"),
+                cls: "mod-warning",
+              });
+              del.addEventListener("click", () => { modal.close(); resolve(true); });
+            },
           });
-          del.addEventListener("click", () => { modal.close(); resolve(true); });
-        },
-      });
-      modal.open();
-    });
-    if (!confirmed) return;
+          modal.open();
+        });
+        return confirmed;
+      },
+      createUndoNotice: (viewName: string, undoLabel: string) => {
+        const notice = new Notice("", 8000);
+        notice.messageEl.empty();
+        notice.messageEl.createSpan({ text: tr("notice.deleted", { name: viewName }) });
 
-    // Snapshot for undo — uses stable-id findIndex (not object-reference indexOf)
-    const wasDefault = this.plugin.settings.defaultSavedViewId === view.id;
-    const wasActive = this.state.savedViewId === view.id;
-    const undoPlan = computeQueryPresetDeleteUndoPlan(this.plugin.settings.queryPresets, view);
+        const undoBtn = notice.messageEl.createSpan({
+          text: `  ${undoLabel}`,
+          cls: "bt-notice-undo",
+        });
 
-    await this.deleteSavedView(view);
+        let undone = false;
+        return {
+          onUndoClick: (handler: () => Promise<void>) => {
+            undoBtn.addEventListener("click", () => {
+              if (undone) return;
+              undone = true;
+              void handler();
+            });
+          },
+          close: () => notice.hide(),
+        };
+      },
+      showRestoredNotice: (viewName: string) => {
+        new Notice(tr("notice.undoRestored", { name: viewName }), 3000);
+      },
+    };
 
-    // Clickable undo toast
-    const notice = new Notice("", 8000);
-    notice.messageEl.empty();
-    notice.messageEl.createSpan({ text: tr("notice.deleted", { name: undoPlan.snapshot.name }) });
+    const result = await executeDeleteQueryPresetFlow(
+      this.plugin.settings.queryPresets,
+      view,
+      this.plugin.settings.defaultSavedViewId,
+      this.state.savedViewId,
+      flowCallbacks,
+    );
 
-    let undone = false;
-    const restore = async () => {
-      if (undone) return;
-      undone = true;
-      notice.hide();
+    if (!result.confirmed) return;
+
+    // Apply the deletion to plugin state
+    this.plugin.settings.queryPresets = result.presetsAfter;
+    this.tabDrafts.delete(view.id);
+
+    // Handle default/active fallback after deletion
+    if (result.wasDefault) {
+      this.plugin.settings.defaultSavedViewId = this.visibleQueryTabs()[0]?.id ?? null;
+    }
+    if (result.wasActive) {
+      const next = this.visibleQueryTabs()[0];
+      if (next) this.applySavedView(next);
+    }
+
+    await this.plugin.saveSettings();
+    this.render();
+
+    // Wire the undo handler to restore state
+    result.undoNotice?.onUndoClick(async () => {
+      result.undoNotice?.close();
 
       // Re-insert snapshot at original position
       this.plugin.settings.queryPresets = executeQueryPresetDeleteUndo(
         this.plugin.settings.queryPresets,
-        undoPlan,
+        result.undoPlan!,
       );
-      this.tabDrafts.delete(undoPlan.snapshot.id);
+      this.tabDrafts.delete(result.undoPlan!.snapshot.id);
 
-      if (wasDefault) {
-        this.plugin.settings.defaultSavedViewId = undoPlan.snapshot.id;
+      if (result.wasDefault) {
+        this.plugin.settings.defaultSavedViewId = result.undoPlan!.snapshot.id;
       }
-      if (wasActive) {
-        const restored = this.plugin.settings.queryPresets.find((p) => p.id === undoPlan.snapshot.id);
+      if (result.wasActive) {
+        const restored = this.plugin.settings.queryPresets.find(
+          (p) => p.id === result.undoPlan!.snapshot.id,
+        );
         if (restored) this.applySavedView(restored);
       }
 
       await this.plugin.saveSettings();
       this.render();
-      new Notice(tr("notice.undoRestored", { name: undoPlan.snapshot.name }), 3000);
-    };
-
-    const undoBtn = notice.messageEl.createSpan({
-      text: `  ${tr("notice.undoAction")}`,
-      cls: "bt-notice-undo",
+      new Notice(tr("notice.undoRestored", { name: result.undoPlan!.snapshot.name }), 3000);
     });
-    undoBtn.addEventListener("click", () => { void restore(); });
   }
 
   private async restoreBuiltinSavedView(view: QueryPreset): Promise<void> {
