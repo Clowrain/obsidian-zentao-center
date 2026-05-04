@@ -41,6 +41,12 @@ const {
   suggestSavedViewName,
   updateSavedViewById,
   upsertSavedView,
+  deleteQueryPresetById,
+  upsertQueryPreset,
+  normalizeQueryPreset,
+  createQueryPreset,
+  deleteSavedViewById,
+  isBuiltinSavedViewId,
 } = await import("../test/.compiled/saved-views.js");
 
 test("US-109c: createSavedView persists the current filter conditions, not a task snapshot", () => {
@@ -404,4 +410,161 @@ test("US-109q: moveSavedViewById reorders one tab without rewriting ids", () => 
 
   assert.deepEqual(moveSavedViewById([alpha, beta, gamma], "sv-beta", -1).map((view) => view.id), ["sv-beta", "sv-alpha", "sv-gamma"]);
   assert.deepEqual(moveSavedViewById([alpha, beta, gamma], "sv-beta", 1).map((view) => view.id), ["sv-alpha", "sv-gamma", "sv-beta"]);
+});
+
+// ── VAL-GUI-004: delete custom tab + undo restore ──
+
+test("VAL-GUI-004: deleteQueryPresetById removes target and leaves others untouched", () => {
+  const a = createQueryPreset("A", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("B", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("C", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  const after = deleteQueryPresetById(presets, "sv-b");
+
+  assert.equal(after.length, 2);
+  assert.deepEqual(after.map((p) => p.id), ["sv-a", "sv-c"]);
+});
+
+test("VAL-GUI-004: deleteQueryPresetById is no-op when id not found", () => {
+  const a = createQueryPreset("A", { status: "todo" }, () => "sv-a");
+  const after = deleteQueryPresetById([a], "nonexistent");
+
+  assert.equal(after.length, 1);
+  assert.equal(after[0].id, "sv-a");
+});
+
+test("VAL-GUI-004: undo delete restores QueryPreset snapshot with all fields", () => {
+  // Simulate: create preset → snapshot → delete → undo (upsert)
+  const original = createQueryPreset(
+    "My Tab",
+    {
+      search: "focus",
+      tags: ["#work", "#urgent"],
+      status: ["todo", "in_progress"],
+      time: { scheduled: "week", deadline: "overdue" },
+      view: { type: "week", preset: "today", orderBy: ["deadline_risk"] },
+      summary: [{ type: "count" }, { type: "sum", field: "actual", format: "duration" }],
+    },
+    () => "sv-custom-1",
+  );
+
+  // Take a snapshot
+  const snapshot = normalizeQueryPreset(original);
+  assert.equal(snapshot.id, "sv-custom-1");
+  assert.equal(snapshot.name, "My Tab");
+  assert.equal(snapshot.builtin, false);
+  assert.equal(snapshot.hidden, false);
+  assert.deepEqual(snapshot.filters.search, "focus");
+  assert.deepEqual(snapshot.filters.tags, ["#work", "#urgent"]);
+  assert.deepEqual(snapshot.filters.status, ["todo", "in_progress"]);
+  assert.deepEqual(snapshot.filters.time, { scheduled: "week", deadline: "overdue" });
+  assert.deepEqual(snapshot.view, { type: "week", preset: "today", orderBy: ["deadline_risk"] });
+  assert.equal(snapshot.summary.length, 2);
+
+  // Delete from the array
+  const otherPreset = createQueryPreset("Other", { status: "all" }, () => "sv-other");
+  let afterDelete = deleteQueryPresetById([otherPreset, original], "sv-custom-1");
+  assert.equal(afterDelete.length, 1);
+  assert.equal(afterDelete[0].id, "sv-other");
+
+  // Undo: upsert the snapshot back
+  const afterUndo = upsertQueryPreset(afterDelete, snapshot);
+  assert.equal(afterUndo.length, 2);
+  const restored = afterUndo.find((p) => p.id === "sv-custom-1");
+  assert.ok(restored, "restored preset should exist");
+  assert.equal(restored.name, "My Tab");
+  assert.equal(restored.builtin, false);
+  assert.equal(restored.hidden, false);
+  assert.deepEqual(restored.filters, snapshot.filters);
+  assert.deepEqual(restored.view, snapshot.view);
+  assert.equal(restored.summary.length, 2);
+});
+
+test("VAL-GUI-004: undo restores preset at original position when possible", () => {
+  const a = createQueryPreset("A", { status: "todo" }, () => "sv-a");
+  const b = createQueryPreset("B", { status: "done" }, () => "sv-b");
+  const c = createQueryPreset("C", { status: "all" }, () => "sv-c");
+  const presets = [a, b, c];
+
+  // Snapshot of B at index 1
+  const snapshot = normalizeQueryPreset(b);
+  const originalIndex = 1;
+
+  // Delete B
+  const afterDelete = deleteQueryPresetById(presets, "sv-b");
+  assert.deepEqual(afterDelete.map((p) => p.id), ["sv-a", "sv-c"]);
+
+  // Undo: insert at originalIndex
+  const insertIdx = Math.min(originalIndex, afterDelete.length);
+  const presetsCopy = [...afterDelete];
+  presetsCopy.splice(insertIdx, 0, snapshot);
+
+  assert.deepEqual(presetsCopy.map((p) => p.id), ["sv-a", "sv-b", "sv-c"]);
+});
+
+test("VAL-GUI-004: undo handles originalIndex beyond current length (appends)", () => {
+  const a = createQueryPreset("A", { status: "todo" }, () => "sv-a");
+  const presets = [a];
+
+  const snapshot = normalizeQueryPreset(a);
+  const afterDelete = deleteQueryPresetById(presets, "sv-a");
+  assert.equal(afterDelete.length, 0);
+
+  // originalIndex was 0, now length is 0, insertIdx = min(0, 0) = 0
+  const insertIdx = Math.min(0, afterDelete.length);
+  const presetsCopy = [...afterDelete];
+  presetsCopy.splice(insertIdx, 0, snapshot);
+
+  assert.equal(presetsCopy.length, 1);
+  assert.equal(presetsCopy[0].id, "sv-a");
+});
+
+test("VAL-GUI-004: deleteSavedViewById also removes target (legacy compat)", () => {
+  const a = createSavedView("A", { search: "", tag: "", time: {}, status: "all" }, () => "sv-a");
+  const b = createSavedView("B", { search: "", tag: "", time: {}, status: "all" }, () => "sv-b");
+
+  const after = deleteSavedViewById([a, b], "sv-a");
+  assert.equal(after.length, 1);
+  assert.equal(after[0].id, "sv-b");
+});
+
+test("VAL-GUI-004: builtin tab IDs are detected by isBuiltinSavedViewId", () => {
+  assert.equal(isBuiltinSavedViewId("preset-today"), true);
+  assert.equal(isBuiltinSavedViewId("preset-week"), true);
+  assert.equal(isBuiltinSavedViewId("preset-month"), true);
+  assert.equal(isBuiltinSavedViewId("preset-todo"), true);
+  assert.equal(isBuiltinSavedViewId("preset-unscheduled"), true);
+  assert.equal(isBuiltinSavedViewId("preset-completed"), true);
+  assert.equal(isBuiltinSavedViewId("preset-dropped"), true);
+  assert.equal(isBuiltinSavedViewId("sv-custom"), false);
+  assert.equal(isBuiltinSavedViewId("preset-unknown"), false);
+});
+
+test("VAL-GUI-004: snapshot normalizeQueryPreset preserves hidden state", () => {
+  const preset = normalizeQueryPreset({
+    id: "sv-hidden",
+    name: "Hidden Tab",
+    builtin: false,
+    hidden: true,
+    filters: { status: "todo" },
+    view: { type: "list" },
+    summary: [],
+  });
+
+  assert.equal(preset.hidden, true);
+});
+
+test("VAL-GUI-004: snapshot normalizeQueryPreset strips unknown fields", () => {
+  const preset = normalizeQueryPreset({
+    id: "sv-clean",
+    name: "Clean",
+    filters: {},
+    view: {},
+    summary: [],
+    // @ts-expect-error: unknown field
+    unknownField: "should be stripped",
+  });
+
+  assert.equal("unknownField" in preset, false);
 });

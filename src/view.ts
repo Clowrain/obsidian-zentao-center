@@ -1226,7 +1226,7 @@ export class TaskCenterView extends ItemView {
       action(view.hidden ? tr("savedViews.show") : tr("savedViews.hide"), () => this.toggleSavedViewHidden(view, !view.hidden));
       if (view.builtin) action(tr("savedViews.restore"), () => this.restoreBuiltinSavedView(view));
       if (!view.builtin) {
-        action(tr("savedViews.delete"), () => this.deleteSavedView(view));
+        action(tr("savedViews.delete"), () => this.deleteSavedViewWithConfirm(view));
       }
     }
   }
@@ -1343,11 +1343,51 @@ export class TaskCenterView extends ItemView {
       modal.open();
     });
     if (!confirmed) return;
+
     // Snapshot for undo
     const snapshot = normalizeQueryPreset(view);
+    const wasDefault = this.plugin.settings.defaultSavedViewId === view.id;
+    const wasActive = this.state.savedViewId === view.id;
+    const originalIndex = this.plugin.settings.queryPresets.indexOf(view);
+
     await this.deleteSavedView(view);
-    // Toast undo
-    new Notice(tr("notice.deleted", { name: snapshot.name }), 4000);
+
+    // Clickable undo toast
+    const notice = new Notice("", 8000);
+    notice.messageEl.empty();
+    notice.messageEl.createSpan({ text: tr("notice.deleted", { name: snapshot.name }) });
+
+    let undone = false;
+    const restore = async () => {
+      if (undone) return;
+      undone = true;
+      notice.hide();
+
+      // Re-insert snapshot at original position
+      const presets = [...this.plugin.settings.queryPresets];
+      const insertIdx = Math.min(originalIndex, presets.length);
+      presets.splice(insertIdx, 0, snapshot);
+      this.plugin.settings.queryPresets = presets;
+      this.tabDrafts.delete(snapshot.id);
+
+      if (wasDefault) {
+        this.plugin.settings.defaultSavedViewId = snapshot.id;
+      }
+      if (wasActive) {
+        const restored = this.plugin.settings.queryPresets.find((p) => p.id === snapshot.id);
+        if (restored) this.applySavedView(restored);
+      }
+
+      await this.plugin.saveSettings();
+      this.render();
+      new Notice(tr("notice.undoRestored", { name: snapshot.name }), 3000);
+    };
+
+    const undoBtn = notice.messageEl.createSpan({
+      text: `  ${tr("notice.undoAction")}`,
+      cls: "bt-notice-undo",
+    });
+    undoBtn.addEventListener("click", () => { void restore(); });
   }
 
   private async restoreBuiltinSavedView(view: QueryPreset): Promise<void> {

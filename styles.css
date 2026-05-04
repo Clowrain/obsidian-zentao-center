@@ -161,6 +161,14 @@
   justify-content: flex-end;
 }
 
+/* Clickable undo action inside delete notice */
+.bt-notice-undo {
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline;
+  margin-left: 4px;
+}
+
 /* Enhanced query editor: View type selector */
 .bt-query-editor-view-row {
   display: flex;

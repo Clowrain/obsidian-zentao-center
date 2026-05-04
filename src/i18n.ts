@@ -105,6 +105,8 @@ const EN = {
   "notice.nested": "nested under {title} {where}",
   "notice.crossFile": "(cross-file)",
   "notice.deleted": "Deleted tab \"{name}\" — no tasks were removed.",
+  "notice.undoAction": "Undo",
+  "notice.undoRestored": "Restored tab \"{name}\".",
 
   // Context menu
   "ctx.markDone": "Mark done",
@@ -336,7 +338,7 @@ const EN = {
   "savedViews.dslTitle": "Edit query DSL",
   "savedViews.dslHelp": "Advanced mode. Edit the same query preset as JSON; save only writes after validation succeeds.",
   "savedViews.deleteConfirmTitle": "Delete tab",
-  "savedViews.deleteConfirmBody": "This only removes the view — no tasks are deleted.",
+  "savedViews.deleteConfirmBody": "Only removes this view — no tasks are deleted.",
   "savedViews.deleteConfirmAction": "Delete",
   "savedViews.tabMore": "More",
   "savedViews.toolbarSummary": "Filters: {summary}",
@@ -428,6 +430,8 @@ const ZH: Partial<typeof EN> = {
   "notice.nested": "已嵌入到「{title}」{where}",
   "notice.crossFile": "（跨文件）",
   "notice.deleted": "已删除 Tab「{name}」——任务本身未被删除。",
+  "notice.undoAction": "撤销",
+  "notice.undoRestored": "已恢复 Tab「{name}」。",
 
   "ctx.markDone": "标记完成",
   "ctx.markTodo": "取消完成",
@@ -632,7 +636,7 @@ const ZH: Partial<typeof EN> = {
   "savedViews.dslTitle": "编辑 Query DSL",
   "savedViews.dslHelp": "高级入口。直接以 JSON 编辑同一份 query preset；只有校验通过才会写入。",
   "savedViews.deleteConfirmTitle": "删除 Tab",
-  "savedViews.deleteConfirmBody": "仅删除此视图，不会删除任何任务。",
+  "savedViews.deleteConfirmBody": "只删除这个视图，不删除任何任务。",
   "savedViews.deleteConfirmAction": "删除",
   "savedViews.tabMore": "更多",
   "savedViews.toolbarSummary": "当前筛选：{summary}",
