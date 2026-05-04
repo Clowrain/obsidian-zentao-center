@@ -52,13 +52,14 @@ function todayLocal() {
 }
 
 function mkTask(over = {}) {
+  const status = over.status ?? "todo";
   return {
     id: "f.md:L1",
     path: "f.md",
     line: 0,
     indent: "",
     checkbox: " ",
-    status: "todo",
+    status,
     title: "t",
     rawTitle: "t",
     rawLine: "- [ ] t",
@@ -77,6 +78,14 @@ function mkTask(over = {}) {
     hash: "abc123",
     mtime: 0,
     inheritsTerminal: false,
+    // EffectiveTask fields (computeStats uses effectiveStatus)
+    effectiveStatus: status,
+    effectiveScheduled: null,
+    effectiveDeadline: null,
+    effectiveCreated: null,
+    terminalInheritedFrom: null,
+    renderParentId: null,
+    isTopLevelInQuery: true,
     ...over,
   };
 }
@@ -194,6 +203,45 @@ test("computeStats — group prefix produces byGroup", () => {
   assert.ok(s.byGroup);
   assert.equal(s.byGroup.prefix, "象限");
   assert.equal(s.byGroup.entries.length, 2);
+});
+
+// fix-m4-completed-stats-effective: inherited-done tasks (children of
+// done parents) must be counted in stats via effectiveStatus, so the
+// stats doneCount matches the effective cards rendered in the completed
+// view.  Prior to the fix, computeStats used raw t.status === "done"
+// and missed these children.
+test("computeStats — inherited-done children counted via effectiveStatus", () => {
+  const today = todayLocal();
+  const all = [
+    // Parent done with actual time
+    mkTask({ id: "parent", status: "done", completed: today, actual: 60, tags: ["#dev"] }),
+    // Child: raw status is "todo" but effectiveStatus is "done" (inherited)
+    mkTask({ id: "child", status: "todo", effectiveStatus: "done", completed: today, actual: 30, tags: ["#dev"], parentLine: 0 }),
+  ];
+  const s = computeStats(all, { days: 1 });
+  // Both should be counted as done
+  assert.equal(s.doneCount, 2, "inherited-done child must be counted");
+  assert.equal(s.sumActual, 90, "child's actual time must be included");
+  // byTag should aggregate both
+  const devTag = s.byTag.find((x) => x.tag === "#dev");
+  assert.equal(devTag.minutes, 90);
+});
+
+// fix-m4-completed-stats-effective: raw todo children under done parents
+// must NOT be counted as done by computeStats unless their effectiveStatus
+// is "done".  This test verifies that effectiveStatus is the gate, not
+// raw status.
+test("computeStats — raw todo with effectiveStatus todo is NOT counted as done", () => {
+  const today = todayLocal();
+  const all = [
+    mkTask({ id: "a", status: "done", completed: today, actual: 60 }),
+    // Child with effectiveStatus still todo (no terminal ancestor in this fixture)
+    mkTask({ id: "b", status: "todo", effectiveStatus: "todo", completed: null, actual: 30, parentLine: 0 }),
+  ];
+  const s = computeStats(all, { days: 1 });
+  // Only the parent should be counted — the child has effectiveStatus "todo"
+  assert.equal(s.doneCount, 1, "only effective-done tasks are counted");
+  assert.equal(s.sumActual, 60, "only parent's actual time");
 });
 
 test("formatList — header + rows with ids", () => {

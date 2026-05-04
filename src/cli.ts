@@ -21,6 +21,7 @@ import { TaskCache } from "./cache";
 import { todayISO, resolveWhen, isValidISO } from "./dates";
 import { t as tr } from "./i18n";
 import { cliGroupingLabel, normalizeGroupingTags } from "./grouping";
+import { deriveEffectiveTasks, type EffectiveTask } from "./task-tree";
 
 // REMINDER: this module must NOT call `parseVaultTasks` or
 // `app.vault.getMarkdownFiles()` directly. All parse work goes through
@@ -166,7 +167,8 @@ export class TaskCenterApi {
 
   async stats(opts: StatsOpts = {}): Promise<StatsResult> {
     const all = await this.cache.ensureAll();
-    return computeStats(all, opts);
+    const effective = deriveEffectiveTasks(all);
+    return computeStats(effective, opts);
   }
 
   async agentBrief(opts: AgentBriefOpts = {}): Promise<AgentBriefResult> {
@@ -427,7 +429,7 @@ export interface StatsResult {
 // minute totals (top contributors). `byGroup` (US-301) lets callers
 // roll the per-tag table up by a substring like `象限`.
 // see USER_STORIES.md
-export function computeStats(all: ParsedTask[], opts: StatsOpts): StatsResult {
+export function computeStats(all: EffectiveTask[], opts: StatsOpts): StatsResult {
   const today = todayISO();
   let from = opts.from ?? "";
   const to = opts.to ?? today;
@@ -439,7 +441,7 @@ export function computeStats(all: ParsedTask[], opts: StatsOpts): StatsResult {
   }
 
   const done = all.filter(
-    (t) => t.status === "done" && t.completed && t.completed >= from && t.completed <= to,
+    (t) => t.effectiveStatus === "done" && t.completed && t.completed >= from && t.completed <= to,
   );
 
   const withEst = done.filter((t) => t.estimate && t.estimate > 0 && t.actual && t.actual > 0);

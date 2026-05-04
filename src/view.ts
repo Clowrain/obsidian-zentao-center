@@ -2763,8 +2763,10 @@ export class TaskCenterView extends ItemView {
     // Mirrors the CLI `stats days=7` summary so the GUI user gets the same
     // calibration signal an AI agent would. Implementation lives in
     // `computeStats` (cli.ts) — view just renders the StatsResult.
+    // Uses effectiveTasks so inherited-done tasks are counted consistently
+    // with the rendered completed cards.
     // see USER_STORIES.md
-    const stats = computeStats(this.tasks, { days: 7 });
+    const stats = computeStats(effectiveTasks, { days: 7 });
     if (stats.doneCount > 0) {
       const header = wrap.createDiv({ cls: "bt-stats-header" });
       const left = header.createDiv({ cls: "bt-stats-left" });
