@@ -181,7 +181,7 @@ async function createPluginForQueryCli(overrides = {}) {
   const plugin = new TaskCenterPlugin(app);
   const calls = { save: 0, refresh: 0 };
   plugin.settings = {
-    savedViews: [],
+    queryPresets: [],
     defaultSavedViewId: null,
     lastSavedViewId: null,
     groupingTags: [],
@@ -294,7 +294,7 @@ test("loadSettings seeds built-in query tabs and migrates legacy defaultView/las
   app.__viewCreators.clear();
   const plugin = new TaskCenterPlugin(app);
   plugin.loadData = async () => ({
-    savedViews: [
+    queryPresets: [
       {
         id: "sv-custom",
         name: "Custom",
@@ -311,7 +311,7 @@ test("loadSettings seeds built-in query tabs and migrates legacy defaultView/las
 
   await plugin.loadSettings();
 
-  assert.deepEqual(plugin.settings.savedViews.slice(0, 7).map((view) => view.id), [
+  assert.deepEqual(plugin.settings.queryPresets.slice(0, 7).map((view) => view.id), [
     "preset-today",
     "preset-week",
     "preset-month",
@@ -327,25 +327,22 @@ test("loadSettings seeds built-in query tabs and migrates legacy defaultView/las
 test("query-list 默认隐藏 hidden preset，format=json 会带出 default/hidden 元数据", async () => {
   const { plugin } = await createPluginForQueryCli({
     defaultSavedViewId: "sv-alpha",
-    savedViews: [
+    queryPresets: [
       {
         id: "sv-alpha",
         name: "Alpha",
-        search: "focus",
-        tag: "#alpha",
-        time: {},
-        status: ["todo"],
+        builtin: false,
+        hidden: false,
+        filters: { search: "focus", tags: ["#alpha"], time: {}, status: ["todo"] },
         view: { type: "list" },
         summary: [],
       },
       {
         id: "sv-beta",
         name: "Beta",
+        builtin: false,
         hidden: true,
-        search: "",
-        tag: "#beta",
-        time: {},
-        status: "all",
+        filters: { tags: ["#beta"], status: "all" },
         view: { type: "month" },
         summary: [],
       },
@@ -366,14 +363,13 @@ test("query-list 默认隐藏 hidden preset，format=json 会带出 default/hidd
 
 test("query-show 返回当前 preset 的 DSL JSON", async () => {
   const { plugin } = await createPluginForQueryCli({
-    savedViews: [
+    queryPresets: [
       {
         id: "sv-alpha",
         name: "Alpha",
-        search: "deep work",
-        tag: "#alpha,#beta",
-        time: { scheduled: "week" },
-        status: ["todo", "done"],
+        builtin: false,
+        hidden: false,
+        filters: { search: "deep work", tags: ["#alpha", "#beta"], status: ["todo", "done"], time: { scheduled: "week" } },
         view: { type: "month", preset: "today" },
         summary: [{ type: "count" }],
       },
@@ -384,6 +380,8 @@ test("query-show 返回当前 preset 的 DSL JSON", async () => {
   assert.deepEqual(shown, {
     id: "sv-alpha",
     name: "Alpha",
+    builtin: false,
+    hidden: false,
     filters: {
       search: "deep work",
       tags: ["#alpha", "#beta"],
@@ -417,28 +415,27 @@ test("query-save 总是新建 preset id，而不是复用 DSL 里的 id", async 
     assert.match(result, /saved query preset/);
   });
 
-  assert.equal(plugin.settings.savedViews.length, 1);
-  const createdId = plugin.settings.savedViews[0].id;
+  assert.equal(plugin.settings.queryPresets.length, 1);
+  const createdId = plugin.settings.queryPresets[0].id;
   assert.match(createdId, /^sv-[a-z0-9]+-4fzz$/);
   assert.equal(createdId === "sv-from-dsl", false);
-  assert.equal(plugin.settings.savedViews[0].name, "Deep Work");
-  assert.equal(plugin.settings.savedViews[0].search, "docs");
-  assert.deepEqual(plugin.settings.savedViews[0].status, ["todo"]);
-  assert.deepEqual(plugin.settings.savedViews[0].view, { type: "week" });
+  assert.equal(plugin.settings.queryPresets[0].name, "Deep Work");
+  assert.equal(plugin.settings.queryPresets[0].filters.search, "docs");
+  assert.deepEqual(plugin.settings.queryPresets[0].filters.status, ["todo"]);
+  assert.deepEqual(plugin.settings.queryPresets[0].view, { type: "week" });
   assert.equal(calls.save, 1);
   assert.equal(calls.refresh, 1);
 });
 
 test("query-update 固定覆盖当前 id，不允许 DSL 偷换 preset 身份", async () => {
   const { plugin, calls } = await createPluginForQueryCli({
-    savedViews: [
+    queryPresets: [
       {
         id: "sv-alpha",
         name: "Alpha",
-        search: "old",
-        tag: "#alpha",
-        time: {},
-        status: ["todo"],
+        builtin: false,
+        hidden: false,
+        filters: { search: "old", tags: ["#alpha"], status: ["todo"] },
         view: { type: "list" },
         summary: [],
       },
@@ -462,16 +459,13 @@ test("query-update 固定覆盖当前 id，不允许 DSL 偷换 preset 身份", 
   });
 
   assert.match(result, /^ok  sv-alpha  Alpha Updated/);
-  assert.deepEqual(plugin.settings.savedViews, [
+  assert.deepEqual(plugin.settings.queryPresets, [
     {
       id: "sv-alpha",
       name: "Alpha Updated",
       builtin: false,
       hidden: false,
-      search: "new",
-      tag: "#beta",
-      time: { completed: "month" },
-      status: ["done"],
+      filters: { search: "new", tags: ["#beta"], status: ["done"], time: { completed: "month" } },
       view: { type: "month", preset: "completed" },
       summary: [{ type: "sum", field: "actual", format: "duration" }],
     },
@@ -484,14 +478,13 @@ test("query-copy / hide / set-default / delete 维护 preset 生命周期与默�
   const { plugin, calls } = await createPluginForQueryCli({
     defaultSavedViewId: "sv-alpha",
     lastSavedViewId: "sv-alpha",
-    savedViews: [
+    queryPresets: [
       {
         id: "sv-alpha",
         name: "Alpha",
-        search: "focus",
-        tag: "#alpha",
-        time: {},
-        status: ["todo"],
+        builtin: false,
+        hidden: false,
+        filters: { search: "focus", tags: ["#alpha"], status: ["todo"] },
         view: { type: "list" },
         summary: [],
       },
@@ -503,15 +496,15 @@ test("query-copy / hide / set-default / delete 维护 preset 生命周期与默�
     assert.match(copied, /^ok  sv-[a-z0-9]+-4fzz  Alpha Copy/);
   });
 
-  assert.equal(plugin.settings.savedViews.length, 2);
-  const copiedId = plugin.settings.savedViews.find((view) => view.name === "Alpha Copy")?.id;
+  assert.equal(plugin.settings.queryPresets.length, 2);
+  const copiedId = plugin.settings.queryPresets.find((view) => view.name === "Alpha Copy")?.id;
   assert.match(copiedId, /^sv-[a-z0-9]+-4fzz$/);
 
   const hidden = await plugin.cliQueryHide({ id: "sv-alpha", hidden: "true" });
   assert.match(hidden, /hidden query preset/);
   assert.equal(plugin.settings.defaultSavedViewId, null);
   assert.equal(plugin.settings.lastSavedViewId, null);
-  assert.equal(plugin.settings.savedViews.find((view) => view.id === "sv-alpha")?.hidden, true);
+  assert.equal(plugin.settings.queryPresets.find((view) => view.id === "sv-alpha")?.hidden, true);
 
   await assert.rejects(
     () => plugin.cliQuerySetDefault({ id: "sv-alpha" }),
@@ -528,16 +521,13 @@ test("query-copy / hide / set-default / delete 维护 preset 生命周期与默�
 
   const deleted = await plugin.cliQueryDelete({ id: copiedId });
   assert.match(deleted, /deleted query preset/);
-  assert.deepEqual(plugin.settings.savedViews, [
+  assert.deepEqual(plugin.settings.queryPresets, [
     {
       id: "sv-alpha",
       name: "Alpha",
       builtin: false,
       hidden: true,
-      search: "focus",
-      tag: "#alpha",
-      time: {},
-      status: ["todo"],
+      filters: { search: "focus", tags: ["#alpha"], status: ["todo"] },
       view: { type: "list" },
       summary: [],
     },

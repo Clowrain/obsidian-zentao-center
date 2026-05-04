@@ -303,8 +303,13 @@ function contentErr(e: unknown): string {
 function savedViewTags(settings?: TaskCenterSettings): string[] {
   if (!settings) return [];
   const out: string[] = [];
-  for (const view of settings.savedViews) {
-    if (view.tag) out.push(view.tag);
+  for (const view of settings.queryPresets) {
+    const tags = view.filters.tags;
+    if (Array.isArray(tags)) {
+      for (const t of tags) out.push(t);
+    } else if (typeof tags === "string" && tags) {
+      out.push(tags);
+    }
   }
   return out;
 }

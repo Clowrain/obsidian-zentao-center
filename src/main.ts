@@ -1,5 +1,5 @@
 import { Plugin, WorkspaceLeaf, Notice, CliData } from "obsidian";
-import { TaskCenterSettings, DEFAULT_SETTINGS, VIEW_TYPE_TASK_CENTER } from "./types";
+import { TaskCenterSettings, DEFAULT_SETTINGS, VIEW_TYPE_TASK_CENTER, QueryPreset } from "./types";
 import { TaskCenterSettingTab } from "./settings";
 import { TaskCenterView } from "./view";
 import {
@@ -23,18 +23,18 @@ import { TaskWriterError } from "./writer";
 import { __setTestForceMobile } from "./platform";
 import {
   builtinSavedViewIdForLegacyTab,
-  ensureBuiltinSavedViews,
+  ensureBuiltinQueryPresets,
   createSavedViewId,
-  deleteSavedViewById,
-  duplicateSavedView,
+  deleteQueryPresetById,
+  duplicateQueryPreset,
   isLegacySavedTaskView,
-  normalizeSavedTaskView,
-  parseSavedViewDsl,
-  renameSavedViewById,
-  setSavedViewHiddenById,
-  stringifySavedViewDsl,
-  upsertSavedView,
-  visibleSavedViews,
+  normalizeQueryPreset,
+  parseQueryDsl,
+  renameQueryPresetById,
+  setQueryPresetHiddenById,
+  stringifyQueryPreset,
+  upsertQueryPreset,
+  visibleQueryPresets,
 } from "./saved-views";
 
 // CliData / CliFlags / CliHandler come from obsidian.d.ts (since API 1.12.2).
@@ -240,7 +240,7 @@ export default class TaskCenterPlugin extends Plugin {
     // shapes (flat `search`/`tag`/`time`/`status` top-level fields) by
     // filtering them out before builtin seeding. No migration — old data is
     // silently replaced with defaults.
-    const rawViews: unknown[] = merged.savedViews ?? [];
+    const rawViews: unknown[] = merged.queryPresets ?? [];
     const rejectedCount = rawViews.filter((v) => isLegacySavedTaskView(v)).length;
     if (rejectedCount > 0) {
       console.warn(
@@ -249,7 +249,7 @@ export default class TaskCenterPlugin extends Plugin {
     }
     const cleanViews = rawViews.filter((v) => !isLegacySavedTaskView(v));
 
-    const savedViews = ensureBuiltinSavedViews(cleanViews as Parameters<typeof ensureBuiltinSavedViews>[0], {
+    const queryPresets = ensureBuiltinQueryPresets(cleanViews as Parameters<typeof ensureBuiltinQueryPresets>[0], {
       today: tr("tab.today"),
       week: tr("tab.week"),
       month: tr("tab.month"),
@@ -261,15 +261,18 @@ export default class TaskCenterPlugin extends Plugin {
     const defaultSavedViewId =
       merged.defaultSavedViewId
       ?? builtinSavedViewIdForLegacyTab(merged.defaultView)
-      ?? savedViews.find((view) => !view.hidden)?.id
+      ?? queryPresets.find((view) => !view.hidden)?.id
       ?? null;
     const lastSavedViewId =
       merged.lastSavedViewId
       ?? builtinSavedViewIdForLegacyTab(merged.lastTab)
       ?? defaultSavedViewId;
+    // Strip legacy flat savedViews from loaded data (VAL-CROSS-002):
+    // old data.json may carry `savedViews` which must not leak into runtime.
+    delete (merged as Record<string, unknown>).savedViews;
     this.settings = {
       ...merged,
-      savedViews,
+      queryPresets,
       defaultSavedViewId,
       lastSavedViewId,
     };
@@ -829,7 +832,7 @@ export default class TaskCenterPlugin extends Plugin {
   }
 
   private cliQueryList(args: CliArgs): string {
-    const all = args.hidden ? this.settings.savedViews.map((view) => normalizeSavedTaskView(view)) : visibleSavedViews(this.settings.savedViews);
+    const all = args.hidden ? this.settings.queryPresets.map((view) => normalizeQueryPreset(view)) : visibleQueryPresets(this.settings.queryPresets);
     if (args.format === "json") {
       return JSON.stringify(
         all.map((view) => ({
@@ -855,20 +858,20 @@ export default class TaskCenterPlugin extends Plugin {
   }
 
   private cliQueryShow(args: CliArgs): string {
-    const view = this.requireSavedView(requireArg(args.id, "id"));
-    return stringifySavedViewDsl(view);
+    const view = this.requireQueryPreset(requireArg(args.id, "id"));
+    return stringifyQueryPreset(view);
   }
 
   private async cliQuerySave(args: CliArgs): Promise<string> {
     const dsl = requireArg(args.dsl, "dsl");
-    const parsed = parseSavedViewDsl(dsl);
-    const created = normalizeSavedTaskView({
+    const parsed = parseQueryDsl(dsl);
+    const created = normalizeQueryPreset({
       ...parsed,
       id: createSavedViewId(),
       builtin: false,
       hidden: false,
     });
-    this.settings.savedViews = upsertSavedView(this.settings.savedViews, created);
+    this.settings.queryPresets = upsertQueryPreset(this.settings.queryPresets, created);
     await this.saveSettings();
     await this.refreshOpenViews();
     return `ok  ${created.id}  ${created.name}\n    saved query preset`;
@@ -876,14 +879,14 @@ export default class TaskCenterPlugin extends Plugin {
 
   private async cliQueryUpdate(args: CliArgs): Promise<string> {
     const id = requireArg(args.id, "id");
-    const existing = this.requireSavedView(id);
-    const parsed = parseSavedViewDsl(requireArg(args.dsl, "dsl"), existing);
-    const normalized = normalizeSavedTaskView({
+    const existing = this.requireQueryPreset(id);
+    const parsed = parseQueryDsl(requireArg(args.dsl, "dsl"), existing);
+    const normalized = normalizeQueryPreset({
       ...parsed,
       id: existing.id,
       builtin: existing.builtin,
     });
-    this.settings.savedViews = this.settings.savedViews.map((view) => (view.id === id ? normalized : view));
+    this.settings.queryPresets = this.settings.queryPresets.map((view) => (view.id === id ? normalized : view));
     await this.saveSettings();
     await this.refreshOpenViews();
     return `ok  ${normalized.id}  ${normalized.name}\n    updated query preset`;
@@ -891,22 +894,22 @@ export default class TaskCenterPlugin extends Plugin {
 
   private async cliQueryRename(args: CliArgs): Promise<string> {
     const id = requireArg(args.id, "id");
-    this.requireSavedView(id);
-    this.settings.savedViews = renameSavedViewById(this.settings.savedViews, id, requireArg(args.name, "name"));
+    this.requireQueryPreset(id);
+    this.settings.queryPresets = renameQueryPresetById(this.settings.queryPresets, id, requireArg(args.name, "name"));
     await this.saveSettings();
     await this.refreshOpenViews();
-    const renamed = this.requireSavedView(id);
+    const renamed = this.requireQueryPreset(id);
     return `ok  ${renamed.id}  ${renamed.name}\n    renamed query preset`;
   }
 
   private async cliQueryCopy(args: CliArgs): Promise<string> {
-    const source = this.requireSavedView(requireArg(args.id, "id"));
-    const copy = duplicateSavedView(
-      this.settings.savedViews,
+    const source = this.requireQueryPreset(requireArg(args.id, "id"));
+    const copy = duplicateQueryPreset(
+      this.settings.queryPresets,
       source.id,
       (args.name && args.name.trim()) || `${source.name} Copy`,
     );
-    this.settings.savedViews = upsertSavedView(this.settings.savedViews, copy);
+    this.settings.queryPresets = upsertQueryPreset(this.settings.queryPresets, copy);
     await this.saveSettings();
     await this.refreshOpenViews();
     return `ok  ${copy.id}  ${copy.name}\n    copied query preset from ${source.id}`;
@@ -914,13 +917,13 @@ export default class TaskCenterPlugin extends Plugin {
 
   private async cliQueryHide(args: CliArgs): Promise<string> {
     const id = requireArg(args.id, "id");
-    this.requireSavedView(id);
+    this.requireQueryPreset(id);
     const raw = args.hidden;
     if (raw !== "true" && raw !== "false") {
       throw new TaskWriterError("invalid_query", "hidden is required (pass hidden=true|false)");
     }
     const hidden = raw === "true";
-    this.settings.savedViews = setSavedViewHiddenById(this.settings.savedViews, id, hidden);
+    this.settings.queryPresets = setQueryPresetHiddenById(this.settings.queryPresets, id, hidden);
     if (hidden && this.settings.defaultSavedViewId === id) {
       this.settings.defaultSavedViewId = null;
     }
@@ -929,13 +932,13 @@ export default class TaskCenterPlugin extends Plugin {
     }
     await this.saveSettings();
     await this.refreshOpenViews();
-    const updated = this.requireSavedView(id);
+    const updated = this.requireQueryPreset(id);
     return `ok  ${updated.id}  ${updated.name}\n    ${hidden ? "hidden" : "visible"} query preset`;
   }
 
   private async cliQueryDelete(args: CliArgs): Promise<string> {
-    const view = this.requireSavedView(requireArg(args.id, "id"));
-    this.settings.savedViews = deleteSavedViewById(this.settings.savedViews, view.id);
+    const view = this.requireQueryPreset(requireArg(args.id, "id"));
+    this.settings.queryPresets = deleteQueryPresetById(this.settings.queryPresets, view.id);
     if (this.settings.defaultSavedViewId === view.id) this.settings.defaultSavedViewId = null;
     if (this.settings.lastSavedViewId === view.id) this.settings.lastSavedViewId = null;
     await this.saveSettings();
@@ -950,7 +953,7 @@ export default class TaskCenterPlugin extends Plugin {
       await this.saveSettings();
       return "ok  default-query-preset\n    cleared";
     }
-    const view = this.requireSavedView(id);
+    const view = this.requireQueryPreset(id);
     if (view.hidden) {
       throw new TaskWriterError("invalid_query", `query preset is hidden: ${id}`);
     }
@@ -959,10 +962,10 @@ export default class TaskCenterPlugin extends Plugin {
     return `ok  ${view.id}  ${view.name}\n    set as default query preset`;
   }
 
-  private requireSavedView(id: string) {
-    const view = this.settings.savedViews.find((item) => item.id === id);
+  private requireQueryPreset(id: string): QueryPreset {
+    const view = this.settings.queryPresets.find((item) => item.id === id);
     if (!view) throw new TaskWriterError("query_not_found", id);
-    return normalizeSavedTaskView(view);
+    return normalizeQueryPreset(view);
   }
 }
 

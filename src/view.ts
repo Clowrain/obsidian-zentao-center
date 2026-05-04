@@ -39,34 +39,35 @@ import { taskDisplayTags } from "./tags";
 import { formatDateFilterLabel } from "./date-filter";
 import { taskMatchesTimeToken, timeTokenAppliesToField } from "./time-filter";
 import {
-  applySavedViewFilters,
+  applyQueryPresetFilters,
   builtinSavedViewId,
-  restoreBuiltinSavedViewById,
-  restoreBuiltinSavedViews,
-  clearSavedViewFilters as emptySavedViewFilters,
+  restoreBuiltinQueryPresetById,
+  restoreBuiltinQueryPresets,
+  clearQueryPresetFilters as emptySavedViewFilters,
   createSavedViewId,
-  createSavedView,
-  parseSavedViewDsl,
-  sameSavedViewContent,
-  stringifySavedViewDsl,
-  hasSavedViewFilters,
-  duplicateSavedView,
-  moveSavedViewById,
-  renameSavedViewById,
-  setSavedViewHiddenById,
-  deleteSavedViewById,
-  normalizeSavedTaskView,
+  createQueryPreset,
+  parseQueryDsl,
+  sameQueryPresetContent,
+  stringifyQueryPreset,
+  hasQueryPresetFilters,
+  duplicateQueryPreset,
+  moveQueryPresetById,
+  renameQueryPresetById,
+  setQueryPresetHiddenById,
+  deleteQueryPresetById,
+  normalizeQueryPreset,
   normalizeSavedViewStatus,
-  suggestSavedViewName as suggestSavedViewNameForFilters,
-  upsertSavedView,
-  updateSavedViewById,
-  visibleSavedViews,
+  suggestQueryPresetName as suggestSavedViewNameForFilters,
+  upsertQueryPreset,
+  updateQueryPresetById,
+  visibleQueryPresets,
+  queryPresetTagString,
 } from "./saved-views";
 import type {
-  SavedTaskView,
-  SavedViewConfig,
+  QueryPreset,
+  QueryPresetViewConfig,
   SavedViewStatus,
-  SavedViewSummaryMetric,
+  QueryPresetSummaryMetric,
   TaskStatus,
 } from "./types";
 import type { SavedViewTimeField, SavedViewTimeFilters } from "./types";
@@ -169,7 +170,7 @@ export class TaskCenterView extends ItemView {
   private dateCalendarAnchorISO = startOfMonth(todayISO());
   private pendingDateRangeStart: string | null = null;
   private viewResizeObserver: ResizeObserver | null = null;
-  private tabDrafts = new Map<string, SavedTaskView>();
+  private tabDrafts = new Map<string, QueryPreset>();
 
   constructor(leaf: WorkspaceLeaf, plugin: TaskCenterPlugin) {
     super(leaf);
@@ -180,7 +181,7 @@ export class TaskCenterView extends ItemView {
       notify: (msg, ms) => new Notice(msg, ms),
     });
     const restoredSavedView = this.initialSavedViewFromSettings();
-    const restoredFilters = restoredSavedView ? applySavedViewFilters(restoredSavedView) : emptySavedViewFilters();
+    const restoredFilters = restoredSavedView ? applyQueryPresetFilters(restoredSavedView) : emptySavedViewFilters();
     const restoredTab = restoredSavedView
       ? this.tabForSavedView(restoredSavedView, "today")
       : "today";
@@ -210,16 +211,16 @@ export class TaskCenterView extends ItemView {
     return "kanban-square";
   }
 
-  private initialSavedViewFromSettings(): SavedTaskView | null {
+  private initialSavedViewFromSettings(): QueryPreset | null {
     const preferredId = this.plugin.settings.lastSavedViewId ?? this.plugin.settings.defaultSavedViewId;
     if (preferredId) {
-      const match = this.plugin.settings.savedViews.find((view) => view.id === preferredId);
+      const match = this.plugin.settings.queryPresets.find((view) => view.id === preferredId);
       if (match) {
-        const normalized = normalizeSavedTaskView(match);
+        const normalized = normalizeQueryPreset(match);
         if (!normalized.hidden) return normalized;
       }
     }
-    return visibleSavedViews(this.plugin.settings.savedViews)[0] ?? null;
+    return visibleQueryPresets(this.plugin.settings.queryPresets)[0] ?? null;
   }
 
   async onOpen(): Promise<void> {
@@ -448,13 +449,13 @@ export class TaskCenterView extends ItemView {
   // ViewState init (priority: lastTab → defaultView → "week").
   // see USER_STORIES.md
   setTab(tab: TabKey) {
-    const builtIn = this.plugin.settings.savedViews.find((view) => view.id === this.builtinSavedViewIdForTab(tab));
+    const builtIn = this.plugin.settings.queryPresets.find((view) => view.id === this.builtinSavedViewIdForTab(tab));
     if (builtIn) {
       this.activateSavedView(builtIn);
       return;
     }
     this.state.tab = tab;
-    this.plugin.settings.lastTab = tab;
+    if (tab !== "list") this.plugin.settings.lastTab = tab;
     this.plugin.saveSettings().catch(() => undefined);
     this.render();
   }
@@ -625,7 +626,7 @@ export class TaskCenterView extends ItemView {
 
       btn.addEventListener("dragover", (e) => {
         const dt = e.dataTransfer;
-        if (!dt || !dt.types.contains("text/task-id")) return;
+        if (!dt || !dt.types.includes("text/task-id")) return;
         e.preventDefault();
         dt.dropEffect = "move";
         btn.addClass("drag-hover");
@@ -716,7 +717,7 @@ export class TaskCenterView extends ItemView {
       mobileFilters.dataset.mobileAction = "filters";
       mobileFilters.addEventListener("click", () => this.openQueryControlsSheet());
     } else {
-      this.renderSavedViewsCompactBar(subRow);
+      this.renderSavedViewsToolbar(subRow);
     }
 
     const utility = mainRow.createDiv({ cls: "bt-toolbar-utility" });
@@ -858,7 +859,7 @@ export class TaskCenterView extends ItemView {
       });
       dsl.dataset.action = "edit-current-view-dsl";
       dsl.addEventListener("click", () => {
-        void this.openQueryDslModal(rerenderControls);
+        this.openQueryDslModal(rerenderControls);
       });
     }
 
@@ -872,8 +873,8 @@ export class TaskCenterView extends ItemView {
     }
   }
 
-  private visibleQueryTabs(): SavedTaskView[] {
-    return visibleSavedViews(this.plugin.settings.savedViews);
+  private visibleQueryTabs(): QueryPreset[] {
+    return visibleQueryPresets(this.plugin.settings.queryPresets);
   }
 
   private savedViewLabels(): Record<"today" | "week" | "month" | "completed" | "unscheduled", string> {
@@ -886,20 +887,20 @@ export class TaskCenterView extends ItemView {
     };
   }
 
-  private isViewCurrentlyActive(view: SavedTaskView): boolean {
+  private isViewCurrentlyActive(view: QueryPreset): boolean {
     return view.id === this.state.savedViewId;
   }
 
-  private isSavedViewDirty(view: SavedTaskView): boolean {
-    const normalized = normalizeSavedTaskView(view);
+  private isSavedViewDirty(view: QueryPreset): boolean {
+    const normalized = normalizeQueryPreset(view);
     if (this.isViewCurrentlyActive(normalized)) {
       return this.isSelectedSavedViewDirty(normalized);
     }
     const draft = this.tabDrafts.get(normalized.id);
-    return !!draft && !sameSavedViewContent(draft, normalized);
+    return !!draft && !sameQueryPresetContent(draft, normalized);
   }
 
-  private savedViewBadges(view: SavedTaskView): string[] {
+  private savedViewBadges(view: QueryPreset): string[] {
     const badges: string[] = [];
     if (this.isViewCurrentlyActive(view)) badges.push(tr("savedViews.currentBadge"));
     if (this.plugin.settings.defaultSavedViewId === view.id) badges.push(tr("savedViews.defaultBadge"));
@@ -927,8 +928,8 @@ export class TaskCenterView extends ItemView {
     }
   }
 
-  private legacyTabForSavedView(view: SavedTaskView): TabKey | null {
-    const normalized = normalizeSavedTaskView(view);
+  private legacyTabForSavedView(view: QueryPreset): TabKey | null {
+    const normalized = normalizeQueryPreset(view);
     if (normalized.id === builtinSavedViewId("today")) return "today";
     if (normalized.id === builtinSavedViewId("week")) return "week";
     if (normalized.id === builtinSavedViewId("month")) return "month";
@@ -938,19 +939,19 @@ export class TaskCenterView extends ItemView {
   }
 
   private activateSavedViewById(id: string): void {
-    const view = this.plugin.settings.savedViews.find((item) => item.id === id);
+    const view = this.plugin.settings.queryPresets.find((item) => item.id === id);
     if (!view) return;
     this.activateSavedView(view);
   }
 
-  private activateSavedView(view: SavedTaskView): void {
+  private activateSavedView(view: QueryPreset): void {
     this.persistCurrentDraft();
     this.applySavedView(view);
     this.render();
   }
 
-  private countForSavedView(view: SavedTaskView): number {
-    const normalized = normalizeSavedTaskView(view);
+  private countForSavedView(view: QueryPreset): number {
+    const normalized = normalizeQueryPreset(view);
     const tab = this.tabForSavedView(normalized, "list");
     const filter = this.getSavedViewFilter(normalized);
     const today = todayISO();
@@ -991,8 +992,8 @@ export class TaskCenterView extends ItemView {
     return this.hideChildrenOfVisibleParents(this.tasks.filter(filter)).length;
   }
 
-  private openSavedViewMenu(event: MouseEvent, view: SavedTaskView): void {
-    const normalized = normalizeSavedTaskView(view);
+  private openSavedViewMenu(event: MouseEvent, view: QueryPreset): void {
+    const normalized = normalizeQueryPreset(view);
     const menu = new Menu();
     menu.addItem((item) =>
       item.setTitle(tr("savedViews.copy")).onClick(() => {
@@ -1002,7 +1003,7 @@ export class TaskCenterView extends ItemView {
     menu.addItem((item) =>
       item.setTitle(tr("savedViews.editDsl")).onClick(() => {
         this.activateSavedView(normalized);
-        void this.openQueryDslModal();
+        this.openQueryDslModal();
       }),
     );
     menu.addItem((item) =>
@@ -1077,7 +1078,7 @@ export class TaskCenterView extends ItemView {
     });
 
     const rows = parent.createDiv({ cls: "bt-manage-tabs-list" });
-    for (const view of this.plugin.settings.savedViews.map((item) => normalizeSavedTaskView(item))) {
+    for (const view of this.plugin.settings.queryPresets.map((item) => normalizeQueryPreset(item))) {
       const row = rows.createDiv({ cls: "bt-manage-tab-row" });
       const main = row.createDiv({ cls: "bt-manage-tab-main" });
       const title = main.createDiv({ cls: "bt-manage-tab-title", text: view.name });
@@ -1097,9 +1098,9 @@ export class TaskCenterView extends ItemView {
         });
       };
       action(tr("savedViews.open"), () => this.activateSavedView(view));
-      action(tr("savedViews.editDsl"), async () => {
+      action(tr("savedViews.editDsl"), () => {
         this.activateSavedView(view);
-        await this.openQueryDslModal();
+        this.openQueryDslModal();
       });
       action(tr("savedViews.rename"), () => this.renameSavedView(view));
       action(tr("savedViews.copy"), () => this.copySavedView(view));
@@ -1122,11 +1123,11 @@ export class TaskCenterView extends ItemView {
     await this.saveCurrentView(name.trim());
   }
 
-  private async copySavedView(view: SavedTaskView): Promise<void> {
+  private async copySavedView(view: QueryPreset): Promise<void> {
     const name = await this.askSavedViewName(`${view.name} Copy`);
     if (!name?.trim()) return;
-    const copied = duplicateSavedView(this.plugin.settings.savedViews, view.id, name.trim(), createSavedViewId);
-    this.plugin.settings.savedViews = upsertSavedView(this.plugin.settings.savedViews, copied);
+    const copied = duplicateQueryPreset(this.plugin.settings.queryPresets, view.id, name.trim(), createSavedViewId);
+    this.plugin.settings.queryPresets = upsertQueryPreset(this.plugin.settings.queryPresets, copied);
     this.tabDrafts.delete(copied.id);
     this.applySavedView(copied);
     await this.plugin.saveSettings();
@@ -1134,7 +1135,7 @@ export class TaskCenterView extends ItemView {
   }
 
   private async setDefaultSavedView(id: string): Promise<void> {
-    const view = this.plugin.settings.savedViews.find((item) => item.id === id);
+    const view = this.plugin.settings.queryPresets.find((item) => item.id === id);
     if (!view) return;
     if (view.hidden) {
       throw new Error("不能把已隐藏的 Tab 设为默认。");
@@ -1144,28 +1145,28 @@ export class TaskCenterView extends ItemView {
     this.render();
   }
 
-  private async moveSavedView(view: SavedTaskView, direction: -1 | 1): Promise<void> {
-    this.plugin.settings.savedViews = moveSavedViewById(this.plugin.settings.savedViews, view.id, direction);
+  private async moveSavedView(view: QueryPreset, direction: -1 | 1): Promise<void> {
+    this.plugin.settings.queryPresets = moveQueryPresetById(this.plugin.settings.queryPresets, view.id, direction);
     await this.plugin.saveSettings();
     this.render();
   }
 
-  private async renameSavedView(view: SavedTaskView): Promise<void> {
+  private async renameSavedView(view: QueryPreset): Promise<void> {
     const name = await this.askSavedViewName(view.name);
     if (!name?.trim()) return;
-    this.plugin.settings.savedViews = renameSavedViewById(this.plugin.settings.savedViews, view.id, name.trim());
-    const renamed = this.plugin.settings.savedViews.find((item) => item.id === view.id);
+    this.plugin.settings.queryPresets = renameQueryPresetById(this.plugin.settings.queryPresets, view.id, name.trim());
+    const renamed = this.plugin.settings.queryPresets.find((item) => item.id === view.id);
     if (renamed) this.applySavedView(renamed);
     await this.plugin.saveSettings();
     this.render();
   }
 
-  private async toggleSavedViewHidden(view: SavedTaskView, hidden: boolean): Promise<void> {
+  private async toggleSavedViewHidden(view: QueryPreset, hidden: boolean): Promise<void> {
     const visible = this.visibleQueryTabs();
     if (hidden && visible.length <= 1 && visible[0]?.id === view.id) {
       throw new Error("至少保留一个可见 Tab。");
     }
-    this.plugin.settings.savedViews = setSavedViewHiddenById(this.plugin.settings.savedViews, view.id, hidden);
+    this.plugin.settings.queryPresets = setQueryPresetHiddenById(this.plugin.settings.queryPresets, view.id, hidden);
     if (hidden) this.tabDrafts.delete(view.id);
     if (hidden && this.plugin.settings.defaultSavedViewId === view.id) {
       this.plugin.settings.defaultSavedViewId = this.visibleQueryTabs().find((item) => item.id !== view.id)?.id ?? null;
@@ -1178,12 +1179,12 @@ export class TaskCenterView extends ItemView {
     this.render();
   }
 
-  private async deleteSavedView(view: SavedTaskView): Promise<void> {
+  private async deleteSavedView(view: QueryPreset): Promise<void> {
     const visible = this.visibleQueryTabs();
     if (visible.length <= 1 && visible[0]?.id === view.id) {
       throw new Error("至少保留一个可见 Tab。");
     }
-    this.plugin.settings.savedViews = deleteSavedViewById(this.plugin.settings.savedViews, view.id);
+    this.plugin.settings.queryPresets = deleteQueryPresetById(this.plugin.settings.queryPresets, view.id);
     this.tabDrafts.delete(view.id);
     if (this.plugin.settings.defaultSavedViewId === view.id) {
       this.plugin.settings.defaultSavedViewId = this.visibleQueryTabs()[0]?.id ?? null;
@@ -1196,14 +1197,14 @@ export class TaskCenterView extends ItemView {
     this.render();
   }
 
-  private async restoreBuiltinSavedView(view: SavedTaskView): Promise<void> {
-    this.plugin.settings.savedViews = restoreBuiltinSavedViewById(
-      this.plugin.settings.savedViews,
+  private async restoreBuiltinSavedView(view: QueryPreset): Promise<void> {
+    this.plugin.settings.queryPresets = restoreBuiltinQueryPresetById(
+      this.plugin.settings.queryPresets,
       view.id,
       this.savedViewLabels(),
     );
     this.tabDrafts.delete(view.id);
-    const restored = this.plugin.settings.savedViews.find((item) => item.id === view.id);
+    const restored = this.plugin.settings.queryPresets.find((item) => item.id === view.id);
     if (restored && this.state.savedViewId === view.id) {
       this.applySavedView(restored);
     }
@@ -1212,7 +1213,7 @@ export class TaskCenterView extends ItemView {
   }
 
   private async restoreAllBuiltinSavedViews(): Promise<void> {
-    this.plugin.settings.savedViews = restoreBuiltinSavedViews(this.plugin.settings.savedViews, this.savedViewLabels());
+    this.plugin.settings.queryPresets = restoreBuiltinQueryPresets(this.plugin.settings.queryPresets, this.savedViewLabels());
     for (const id of [
       builtinSavedViewId("today"),
       builtinSavedViewId("week"),
@@ -1222,7 +1223,7 @@ export class TaskCenterView extends ItemView {
     ]) {
       this.tabDrafts.delete(id);
     }
-    const active = this.plugin.settings.savedViews.find((item) => item.id === this.state.savedViewId);
+    const active = this.plugin.settings.queryPresets.find((item) => item.id === this.state.savedViewId);
     if (active) {
       this.applySavedView(active);
     }
@@ -1588,11 +1589,20 @@ export class TaskCenterView extends ItemView {
   }
 
   private hasSaveableFilters(): boolean {
-    return hasSavedViewFilters({
-      search: this.state.filter,
-      tag: this.state.savedViewTag,
-      time: this.state.savedViewTime,
-      status: this.state.savedViewStatus,
+    const tags = this.state.savedViewTag ? this.state.savedViewTag.split(",").filter(Boolean) : undefined;
+    return hasQueryPresetFilters({
+      id: "",
+      name: "",
+      builtin: false,
+      hidden: false,
+      filters: {
+        ...(this.state.filter ? { search: this.state.filter } : {}),
+        ...(tags && tags.length > 0 ? { tags } : {}),
+        time: this.state.savedViewTime,
+        status: this.state.savedViewStatus,
+      },
+      view: { type: "list" },
+      summary: [],
     });
   }
 
@@ -1659,6 +1669,7 @@ export class TaskCenterView extends ItemView {
   }
 
   private renderQueryControlsSheet(parent: HTMLElement, rerenderControls?: FilterControlsRerender): void {
+    parent.dataset.savedViews = "true";
     parent.createDiv({ cls: "bt-query-editor-help", text: tr("savedViews.queryEditorHelp") });
 
     const filtersSection = parent.createDiv({ cls: "bt-query-editor-section" });
@@ -2262,7 +2273,7 @@ export class TaskCenterView extends ItemView {
   private wireTrashDropTarget(el: HTMLElement) {
     el.addEventListener("dragover", (e) => {
       const dt = e.dataTransfer;
-      if (!dt || !dt.types.contains("text/task-id")) return;
+      if (!dt || !dt.types.includes("text/task-id")) return;
       e.preventDefault();
       dt.dropEffect = "move";
       el.addClass("drop-hover");
@@ -2930,7 +2941,7 @@ export class TaskCenterView extends ItemView {
     if (acceptNestDrop) {
       el.addEventListener("dragover", (e) => {
         const dt = e.dataTransfer;
-        if (!dt || !dt.types.contains("text/task-id")) return;
+        if (!dt || !dt.types.includes("text/task-id")) return;
         if (el.classList.contains("dragging")) return; // self
         e.preventDefault();
         e.stopPropagation();
@@ -3002,7 +3013,7 @@ export class TaskCenterView extends ItemView {
   private makeDropZone(el: HTMLElement, targetDate: string | null) {
     el.addEventListener("dragover", (e) => {
       const dt = e.dataTransfer;
-      if (!dt || !dt.types.contains("text/task-id")) return;
+      if (!dt || !dt.types.includes("text/task-id")) return;
       e.preventDefault();
       dt.dropEffect = "move";
       el.addClass("drop-hover");
@@ -3064,12 +3075,12 @@ export class TaskCenterView extends ItemView {
     };
   }
 
-  private getSavedViewFilter(view: SavedTaskView): (t: ParsedTask) => boolean {
-    const normalized = normalizeSavedTaskView(view);
-    const q = normalized.search.trim().toLowerCase();
-    const tags = parseFilterTags(normalized.tag);
-    const time = normalized.time;
-    const status = normalizeSavedViewStatus(normalized.status);
+  private getSavedViewFilter(view: QueryPreset): (t: ParsedTask) => boolean {
+    const normalized = normalizeQueryPreset(view);
+    const q = (normalized.filters.search ?? "").trim().toLowerCase();
+    const tags = parseFilterTags(queryPresetTagString(normalized));
+    const time = normalized.filters.time ?? {};
+    const status = normalizeSavedViewStatus(normalized.filters.status);
     if (!q && tags.length === 0 && !this.hasTimeFilters(time) && status === "all") return () => true;
     return (t) => {
       if (q && !taskMatchesText(t, q)) return false;
@@ -3118,8 +3129,8 @@ export class TaskCenterView extends ItemView {
       if (status !== "all" && !status.includes(task.status)) continue;
       for (const tag of task.tags) add(tag, 1);
     }
-    for (const view of this.plugin.settings.savedViews.map((item) => normalizeSavedTaskView(item))) {
-      for (const tag of parseFilterTags(view.tag)) add(tag);
+    for (const view of this.plugin.settings.queryPresets.map((item) => normalizeQueryPreset(item))) {
+      for (const tag of parseFilterTags(queryPresetTagString(view))) add(tag);
     }
     for (const tag of selected) add(tag);
     return Array.from(options.values()).sort((a, b) => {
@@ -3164,17 +3175,18 @@ export class TaskCenterView extends ItemView {
     this.pendingDateRangeStart = null;
   }
 
-  private applySavedView(view: SavedTaskView): void {
-    const saved = normalizeSavedTaskView(view);
-    const effective = normalizeSavedTaskView(this.tabDrafts.get(saved.id) ?? saved);
-    const filters = applySavedViewFilters(effective);
+  private applySavedView(view: QueryPreset): void {
+    const saved = normalizeQueryPreset(view);
+    const effective = normalizeQueryPreset(this.tabDrafts.get(saved.id) ?? saved);
+    const filters = applyQueryPresetFilters(effective);
     this.state.savedViewId = filters.savedViewId;
     this.state.filter = filters.search;
     this.state.savedViewTag = filters.tag;
     this.state.savedViewTime = filters.time;
     this.state.savedViewStatus = filters.status;
     this.state.tab = this.tabForSavedView(effective, this.state.tab);
-    this.plugin.settings.lastTab = this.state.tab;
+    const legacyTab = this.legacyTabForSavedView(saved);
+    this.plugin.settings.lastTab = legacyTab && legacyTab !== "list" ? legacyTab : null;
     this.plugin.settings.lastSavedViewId = saved.id;
     this.plugin.saveSettings().catch(() => undefined);
     this.filterPopoverOpen = null;
@@ -3182,7 +3194,7 @@ export class TaskCenterView extends ItemView {
 
   private suggestSavedViewName(): string {
     return suggestSavedViewNameForFilters(
-      { tag: this.state.savedViewTag, status: this.state.savedViewStatus },
+      { tags: this.state.savedViewTag, status: this.state.savedViewStatus },
       tr("savedViews.defaultName"),
     );
   }
@@ -3195,66 +3207,67 @@ export class TaskCenterView extends ItemView {
 
   private async saveCurrentView(name: string): Promise<void> {
     const active = this.activeSavedView();
-    const view = normalizeSavedTaskView({
+    const view = normalizeQueryPreset({
       ...this.currentQuerySnapshot(active, name),
       id: createSavedViewId(),
       builtin: false,
       hidden: false,
     });
-    this.plugin.settings.savedViews = upsertSavedView(this.plugin.settings.savedViews, view);
+    this.plugin.settings.queryPresets = upsertQueryPreset(this.plugin.settings.queryPresets, view);
     this.tabDrafts.delete(view.id);
     this.applySavedView(view);
     await this.plugin.saveSettings();
   }
 
-  private async saveCurrentViewFromDsl(view: SavedTaskView): Promise<void> {
-    const normalized = normalizeSavedTaskView({
+  private async saveCurrentViewFromDsl(view: QueryPreset): Promise<void> {
+    const normalized = normalizeQueryPreset({
       ...view,
       id: createSavedViewId(),
       builtin: false,
       hidden: false,
     });
-    this.plugin.settings.savedViews = upsertSavedView(this.plugin.settings.savedViews, normalized);
+    this.plugin.settings.queryPresets = upsertQueryPreset(this.plugin.settings.queryPresets, normalized);
     this.tabDrafts.delete(normalized.id);
     this.applySavedView(normalized);
     await this.plugin.saveSettings();
   }
 
-  private async updateCurrentSavedView(existing: SavedTaskView): Promise<void> {
-    const view = createSavedView(
+  private async updateCurrentSavedView(existing: QueryPreset): Promise<void> {
+    const tags = this.state.savedViewTag ? this.state.savedViewTag.split(",").filter(Boolean) : undefined;
+    const view = createQueryPreset(
       existing.name,
       {
         search: this.state.filter,
-        tag: this.state.savedViewTag,
+        tags,
         time: this.state.savedViewTime,
         status: this.state.savedViewStatus,
-        view: this.currentSavedViewConfig(),
+        view: this.currentQueryPresetViewConfig(),
         summary: this.currentSavedViewSummary(),
       },
       () => existing.id,
     );
-    this.plugin.settings.savedViews = updateSavedViewById(this.plugin.settings.savedViews, view);
+    this.plugin.settings.queryPresets = updateQueryPresetById(this.plugin.settings.queryPresets, view);
     this.tabDrafts.delete(existing.id);
     this.applySavedView(view);
     await this.plugin.saveSettings();
   }
 
-  private async updateCurrentSavedViewFromDsl(existing: SavedTaskView, dslText: string): Promise<void> {
-    const parsed = parseSavedViewDsl(dslText, existing);
-    const normalized = normalizeSavedTaskView({
+  private async updateCurrentSavedViewFromDsl(existing: QueryPreset, dslText: string): Promise<void> {
+    const parsed = parseQueryDsl(dslText, existing);
+    const normalized = normalizeQueryPreset({
       ...parsed,
       id: existing.id,
       builtin: existing.builtin,
     });
-    this.plugin.settings.savedViews = updateSavedViewById(this.plugin.settings.savedViews, normalized);
+    this.plugin.settings.queryPresets = updateQueryPresetById(this.plugin.settings.queryPresets, normalized);
     this.tabDrafts.delete(existing.id);
     this.applySavedView(normalized);
     await this.plugin.saveSettings();
   }
 
-  private selectedSavedView(): SavedTaskView | null {
-    const view = this.plugin.settings.savedViews.find((item) => item.id === this.state.savedViewId) ?? null;
-    return view ? normalizeSavedTaskView(view) : null;
+  private selectedSavedView(): QueryPreset | null {
+    const view = this.plugin.settings.queryPresets.find((item) => item.id === this.state.savedViewId) ?? null;
+    return view ? normalizeQueryPreset(view) : null;
   }
 
   private persistCurrentDraft(): void {
@@ -3267,60 +3280,61 @@ export class TaskCenterView extends ItemView {
     }
   }
 
-  private activeSavedView(): SavedTaskView {
+  private activeSavedView(): QueryPreset {
     const selected = this.selectedSavedView();
     if (selected) return selected;
     const fallback = this.visibleQueryTabs()[0];
     if (fallback) return fallback;
-    return normalizeSavedTaskView({
+    return normalizeQueryPreset({
       id: builtinSavedViewId("today"),
       name: tr("tab.today"),
       builtin: true,
       hidden: false,
-      search: "",
-      tag: "",
-      time: {},
-      status: ["todo"],
+      filters: { status: ["todo"] },
       view: { type: "list", preset: "today" },
       summary: [],
     });
   }
 
-  private currentQuerySnapshot(existing?: SavedTaskView | null, name?: string): SavedTaskView {
-    return normalizeSavedTaskView({
+  private currentQuerySnapshot(existing?: QueryPreset | null, name?: string): QueryPreset {
+    const tagStr = this.state.savedViewTag;
+    const tagArray = tagStr ? tagStr.split(",").filter(Boolean) : undefined;
+    return normalizeQueryPreset({
       id: existing?.id ?? `draft-${this.state.tab}`,
       name: (name ?? existing?.name ?? this.suggestSavedViewName()).trim(),
       builtin: existing?.builtin ?? false,
       hidden: existing?.hidden ?? false,
-      search: this.state.filter,
-      tag: this.state.savedViewTag,
-      time: this.state.savedViewTime,
-      status: this.state.savedViewStatus,
-      view: this.currentSavedViewConfig(),
+      filters: {
+        ...(this.state.filter ? { search: this.state.filter } : {}),
+        ...(tagArray && tagArray.length > 0 ? { tags: tagArray } : {}),
+        time: this.state.savedViewTime,
+        status: this.state.savedViewStatus,
+      },
+      view: this.currentQueryPresetViewConfig(),
       summary: this.currentSavedViewSummary(),
     });
   }
 
-  private isSelectedSavedViewDirty(view: SavedTaskView): boolean {
-    return !sameSavedViewContent(this.currentQuerySnapshot(view), view);
+  private isSelectedSavedViewDirty(view: QueryPreset): boolean {
+    return !sameQueryPresetContent(this.currentQuerySnapshot(view), view);
   }
 
-  private async openQueryDslModal(rerenderControls?: FilterControlsRerender): Promise<void> {
+  private openQueryDslModal(rerenderControls?: FilterControlsRerender): void {
     const selected = this.activeSavedView();
     const snapshot = this.currentQuerySnapshot(selected);
-    const initial = stringifySavedViewDsl(snapshot);
+    const initial = stringifyQueryPreset(snapshot);
     new QueryDslModal(this.app, initial, true, async (mode: QueryDslSubmitMode, text: string) => {
       if (mode === "update") {
         await this.updateCurrentSavedViewFromDsl(selected, text);
       } else {
-        const parsed = parseSavedViewDsl(text, { name: this.suggestSavedViewName() });
+        const parsed = parseQueryDsl(text, { name: this.suggestSavedViewName() });
         await this.saveCurrentViewFromDsl(parsed);
       }
       this.refreshFilterControls(rerenderControls);
     }).open();
   }
 
-  private currentSavedViewConfig(): SavedViewConfig {
+  private currentQueryPresetViewConfig(): QueryPresetViewConfig {
     switch (this.state.tab) {
       case "week":
         return { type: "week" };
@@ -3338,7 +3352,7 @@ export class TaskCenterView extends ItemView {
     }
   }
 
-  private currentSavedViewSummary(): SavedViewSummaryMetric[] {
+  private currentSavedViewSummary(): QueryPresetSummaryMetric[] {
     if (this.state.tab === "completed") {
       return [
         { type: "count" },
@@ -3352,8 +3366,8 @@ export class TaskCenterView extends ItemView {
     return [];
   }
 
-  private tabForSavedView(view: SavedTaskView, fallback: TabKey): TabKey {
-    const config = normalizeSavedTaskView(view).view;
+  private tabForSavedView(view: QueryPreset, fallback: TabKey): TabKey {
+    const config = normalizeQueryPreset(view).view;
     if (config?.type === "week") return "week";
     if (config?.type === "month") return "month";
     if (config?.preset === "completed") return "completed";

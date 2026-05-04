@@ -59,10 +59,11 @@ export interface TaskCenterSettings {
   // compatibility paths.
   inboxPath?: string;
   groupingTags?: string[];
-  // US-724: user-saved board filters ("Alpha", "Gamma", "Waiting", etc.).
-  // These are lightweight presets over the existing board surface; they do
-  // not create a separate data model.
-  savedViews: SavedTaskView[];
+  // US-724 / VAL-CORE-005: user-saved query presets. These are the
+  // canonical QueryPreset DSL model shared by GUI, CLI, and storage.
+  // Legacy SavedTaskView entries in data.json are detected and rejected
+  // during loadSettings — no migration path exists.
+  queryPresets: QueryPreset[];
   defaultSavedViewId: string | null;
   defaultView: "today" | "week" | "month" | "completed" | "unscheduled";
   openOnStartup: boolean;
@@ -179,7 +180,7 @@ export interface QueryPresetValidationResult {
 }
 
 export const DEFAULT_SETTINGS: TaskCenterSettings = {
-  savedViews: [],
+  queryPresets: [],
   defaultSavedViewId: null,
   defaultView: "week",
   openOnStartup: false,

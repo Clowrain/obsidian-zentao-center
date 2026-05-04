@@ -1,6 +1,7 @@
 import type {
   QueryPreset,
   QueryPresetFilters,
+  QueryPresetSummaryMetric,
   QueryPresetValidationError,
   QueryPresetValidationResult,
   QueryPresetViewConfig,
@@ -925,4 +926,248 @@ export function createBuiltinQueryPresets(
     const flat = seededBuiltinSavedView(tab, labels[tab] ?? DEFAULT_BUILTIN_LABELS[tab]);
     return toQueryPreset(flat);
   });
+}
+
+// ── QueryPreset-native runtime helpers (VAL-CORE-005: no fromQueryPreset bridge) ──
+
+/**
+ * Ensure the 7 builtin QueryPreset tabs are present, preserving user
+ * modifications. Custom presets are appended after builtins.
+ * This is the QueryPreset-native replacement for `ensureBuiltinSavedViews`
+ * — it does NOT call `fromQueryPreset`.
+ */
+export function ensureBuiltinQueryPresets(
+  presets: readonly QueryPreset[],
+  labels: Partial<Record<BuiltinQueryTab, string>> = {},
+): QueryPreset[] {
+  const existing = new Map(presets.map((p) => [p.id, normalizeQueryPreset(p)]));
+  const out: QueryPreset[] = [];
+  for (const tab of BUILTIN_QUERY_TABS) {
+    const seeded = toQueryPreset(seededBuiltinSavedView(tab, labels[tab] ?? DEFAULT_BUILTIN_LABELS[tab]));
+    const current = existing.get(seeded.id);
+    out.push(normalizeQueryPreset(current ? { ...current, builtin: true } : seeded));
+    existing.delete(seeded.id);
+  }
+  for (const preset of presets) {
+    if (isBuiltinSavedViewId(preset.id)) continue;
+    out.push(normalizeQueryPreset(preset));
+  }
+  return out;
+}
+
+export function restoreBuiltinQueryPresetById(
+  presets: readonly QueryPreset[],
+  id: string,
+  labels: Partial<Record<BuiltinQueryTab, string>> = {},
+): QueryPreset[] {
+  const kind = builtinSavedViewKind(id);
+  if (!kind) return [...presets];
+  const seeded = toQueryPreset(seededBuiltinSavedView(kind, labels[kind] ?? DEFAULT_BUILTIN_LABELS[kind]));
+  const index = presets.findIndex((p) => p.id === id);
+  if (index === -1) {
+    return ensureBuiltinQueryPresets([...presets, seeded], labels);
+  }
+  return presets.map((p, i) => (i === index ? seeded : normalizeQueryPreset(p)));
+}
+
+export function restoreBuiltinQueryPresets(
+  presets: readonly QueryPreset[],
+  labels: Partial<Record<BuiltinQueryTab, string>> = {},
+): QueryPreset[] {
+  const customPresets = presets.filter((p) => !isBuiltinSavedViewId(p.id));
+  return ensureBuiltinQueryPresets(customPresets, labels);
+}
+
+export function createQueryPreset(
+  name: string,
+  filters: {
+    search?: string;
+    tags?: string[];
+    time?: SavedViewTimeFilters;
+    status?: SavedViewStatus;
+    view?: QueryPresetViewConfig;
+    summary?: QueryPresetSummaryMetric[];
+  },
+  makeId: () => string = defaultSavedViewId,
+): QueryPreset {
+  return normalizeQueryPreset({
+    id: makeId(),
+    name: name.trim(),
+    builtin: false,
+    hidden: false,
+    filters: {
+      ...(filters.search?.trim() ? { search: filters.search.trim() } : {}),
+      ...(filters.tags && filters.tags.length > 0 ? { tags: filters.tags } : {}),
+      status: filters.status ?? "all",
+      ...(filters.time && Object.keys(filters.time).length > 0 ? { time: normalizeTimeFilters(filters.time) } : {}),
+    },
+    view: filters.view ?? { type: "list" },
+    summary: filters.summary ?? [],
+  });
+}
+
+export function upsertQueryPreset(presets: readonly QueryPreset[], preset: QueryPreset): QueryPreset[] {
+  const normalized = normalizeQueryPreset(preset);
+  const existingIndex = presets.findIndex((p) => p.id === normalized.id);
+  if (existingIndex === -1) return [...presets, normalized];
+  return presets.map((p) => (p.id === normalized.id ? normalized : p));
+}
+
+export function updateQueryPresetById(presets: readonly QueryPreset[], preset: QueryPreset): QueryPreset[] {
+  const normalized = normalizeQueryPreset(preset);
+  return presets.map((p) => (p.id === normalized.id ? normalized : p));
+}
+
+/** Extract flat filter state from a QueryPreset for the view state. */
+export function applyQueryPresetFilters(preset: QueryPreset): AppliedSavedViewFilters {
+  const normalized = normalizeQueryPreset(preset);
+  const tags = Array.isArray(normalized.filters.tags)
+    ? normalized.filters.tags.join(",")
+    : typeof normalized.filters.tags === "string"
+      ? normalized.filters.tags
+      : "";
+  return {
+    savedViewId: normalized.id,
+    search: normalized.filters.search ?? "",
+    tag: tags,
+    time: normalized.filters.time ?? {},
+    status: normalized.filters.status ?? "all",
+    view: normalized.view,
+    summary: normalized.summary,
+  };
+}
+
+export function clearQueryPresetFilters(): AppliedSavedViewFilters {
+  return {
+    savedViewId: null,
+    search: "",
+    tag: "",
+    time: {},
+    status: "all",
+    view: { type: "list" },
+    summary: [],
+  };
+}
+
+export function hasQueryPresetFilters(preset: QueryPreset): boolean {
+  const normalized = normalizeQueryPreset(preset);
+  return !!(
+    (normalized.filters.search?.trim())
+    || (Array.isArray(normalized.filters.tags) && normalized.filters.tags.length > 0)
+    || (typeof normalized.filters.tags === "string" && normalized.filters.tags.trim())
+    || Object.values(normalized.filters.time ?? {}).some(Boolean)
+    || normalizeSavedViewStatus(normalized.filters.status) !== "all"
+  );
+}
+
+export function suggestQueryPresetName(
+  filters: { tags?: string[] | string; status?: SavedViewStatus },
+  fallback: string,
+): string {
+  if (Array.isArray(filters.tags) && filters.tags.length > 0) {
+    return filters.tags[0].replace(/^#/, "");
+  }
+  if (typeof filters.tags === "string" && filters.tags.trim()) {
+    return filters.tags.trim().replace(/^#/, "");
+  }
+  const status = normalizeSavedViewStatus(filters.status);
+  if (status !== "all") return status.join(",");
+  return fallback;
+}
+
+export function visibleQueryPresets(presets: readonly QueryPreset[]): QueryPreset[] {
+  return presets.map((p) => normalizeQueryPreset(p)).filter((p) => !p.hidden);
+}
+
+export function renameQueryPresetById(
+  presets: readonly QueryPreset[],
+  id: string,
+  name: string,
+): QueryPreset[] {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Query Tab 名称不能为空。");
+  return presets.map((p) => (p.id === id ? normalizeQueryPreset({ ...p, name: trimmed }) : p));
+}
+
+export function deleteQueryPresetById(presets: readonly QueryPreset[], id: string): QueryPreset[] {
+  return presets.filter((p) => p.id !== id);
+}
+
+export function setQueryPresetHiddenById(
+  presets: readonly QueryPreset[],
+  id: string,
+  hidden: boolean,
+): QueryPreset[] {
+  return presets.map((p) => (p.id === id ? normalizeQueryPreset({ ...p, hidden }) : p));
+}
+
+export function duplicateQueryPreset(
+  presets: readonly QueryPreset[],
+  sourceId: string,
+  name: string,
+  makeId: () => string = defaultSavedViewId,
+): QueryPreset {
+  const source = presets.find((p) => p.id === sourceId);
+  if (!source) throw new Error(`Query Tab 不存在：${sourceId}`);
+  const normalized = normalizeQueryPreset(source);
+  return normalizeQueryPreset({
+    ...normalized,
+    id: makeId(),
+    name: name.trim(),
+    builtin: false,
+    hidden: false,
+  });
+}
+
+export function moveQueryPresetById(
+  presets: readonly QueryPreset[],
+  id: string,
+  direction: -1 | 1,
+): QueryPreset[] {
+  const index = presets.findIndex((p) => p.id === id);
+  if (index === -1) return [...presets];
+  const target = index + direction;
+  if (target < 0 || target >= presets.length) return [...presets];
+  const out = [...presets];
+  const [item] = out.splice(index, 1);
+  out.splice(target, 0, item);
+  return out;
+}
+
+export function sameQueryPresetContent(a: QueryPreset, b: QueryPreset): boolean {
+  const left = normalizeQueryPreset(a);
+  const right = normalizeQueryPreset(b);
+  return JSON.stringify({
+    builtin: left.builtin,
+    hidden: left.hidden,
+    filters: left.filters,
+    view: left.view,
+    summary: left.summary,
+  }) === JSON.stringify({
+    builtin: right.builtin,
+    hidden: right.hidden,
+    filters: right.filters,
+    view: right.view,
+    summary: right.summary,
+  });
+}
+
+/**
+ * Helper: get comma-separated tag string from QueryPreset filters.
+ */
+export function queryPresetTagString(preset: QueryPreset): string {
+  const tags = normalizeQueryPreset(preset).filters.tags;
+  if (Array.isArray(tags)) return tags.join(",");
+  if (typeof tags === "string") return tags;
+  return "";
+}
+
+/**
+ * Helper: get normalized tags array from QueryPreset filters.
+ */
+export function queryPresetTagsArray(preset: QueryPreset): string[] {
+  const tags = normalizeQueryPreset(preset).filters.tags;
+  if (Array.isArray(tags)) return tags;
+  if (typeof tags === "string") return parseSavedViewTags(tags);
+  return [];
 }

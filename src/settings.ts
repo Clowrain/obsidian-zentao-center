@@ -1,7 +1,7 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { t as tr } from "./i18n";
 import type TaskCenterPlugin from "./main";
-import { restoreBuiltinSavedViews, visibleSavedViews } from "./saved-views";
+import { restoreBuiltinQueryPresets, visibleQueryPresets } from "./saved-views";
 
 const SKILL_INSTALL_COMMAND = "npx skills add CorrectRoadH/obsidian-task-center";
 
@@ -27,7 +27,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
       .setDesc(tr("settings.defaultSavedView.desc"))
       .addDropdown((dd) => {
         dd.addOption("", tr("settings.defaultSavedView.none"));
-        for (const view of visibleSavedViews(this.plugin.settings.savedViews)) {
+        for (const view of visibleQueryPresets(this.plugin.settings.queryPresets)) {
           dd.addOption(view.id, view.name);
         }
         return dd
@@ -45,7 +45,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
         btn
           .setButtonText(tr("settings.restoreBuiltins.action"))
           .onClick(async () => {
-            this.plugin.settings.savedViews = restoreBuiltinSavedViews(this.plugin.settings.savedViews, {
+            this.plugin.settings.queryPresets = restoreBuiltinQueryPresets(this.plugin.settings.queryPresets, {
               today: tr("tab.today"),
               week: tr("tab.week"),
               month: tr("tab.month"),
@@ -54,7 +54,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
               dropped: tr("tab.dropped"),
               unscheduled: tr("tab.unscheduled"),
             });
-            const visible = visibleSavedViews(this.plugin.settings.savedViews);
+            const visible = visibleQueryPresets(this.plugin.settings.queryPresets);
             if (
               this.plugin.settings.defaultSavedViewId
               && !visible.some((view) => view.id === this.plugin.settings.defaultSavedViewId)
