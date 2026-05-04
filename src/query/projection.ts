@@ -379,9 +379,16 @@ function projectMatrix(
     ? []
     : tasks.filter((t) => !allCellTaskIds.has(t.id));
 
+  // showEmptyBuckets: when false, hide cells with no tasks.
+  // This does not affect unmatched or multiMatch — only which cells
+  // are exposed to the rendering surface.
+  const visibleCells = mx.showEmptyBuckets === false
+    ? cells.filter((c) => c.tasks.length > 0)
+    : cells;
+
   return {
     type: "matrix",
-    cells,
+    cells: visibleCells,
     xAxis: { id: mx.x.id, title: mx.x.title, buckets: xBuckets.map((b) => ({ id: b.id, title: b.title })) },
     yAxis: { id: mx.y.id, title: mx.y.title, buckets: yBuckets.map((b) => ({ id: b.id, title: b.title })) },
     unmatched: sortTasks(unmatched, view.orderBy),

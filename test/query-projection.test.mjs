@@ -862,3 +862,397 @@ test("M2: sections with no matching tasks produce empty sections", async () => {
   assert.equal(model.sections.length, 1);
   assert.equal(model.sections[0].tasks.length, 0, "Section is empty when no tasks match filter");
 });
+
+// ── M4: Matrix showEmptyBuckets semantics ──
+
+test("M4: showEmptyBuckets=true preserves all configured cells including empty ones", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Work task", tags: ["#work"], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+            { id: "s-done", title: "Done", when: { status: "done" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        showEmptyBuckets: true,
+      },
+    },
+    1,
+  );
+
+  // 2×2 = 4 cells, all present including empty ones
+  assert.equal(model.type, "matrix");
+  assert.equal(model.cells.length, 4, "showEmptyBuckets=true preserves all 4 cells");
+
+  // Verify empty cells exist
+  const emptyCells = model.cells.filter((c) => c.tasks.length === 0);
+  assert.ok(emptyCells.length > 0, "Empty cells exist with showEmptyBuckets=true");
+});
+
+test("M4: showEmptyBuckets=false hides empty cells", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Work task", tags: ["#work"], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+            { id: "s-done", title: "Done", when: { status: "done" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        showEmptyBuckets: false,
+      },
+    },
+    1,
+  );
+
+  assert.equal(model.type, "matrix");
+  // Only Work×TODO should be non-empty (3 others are empty)
+  assert.equal(model.cells.length, 1, "showEmptyBuckets=false hides 3 empty cells, keeps 1 non-empty");
+  assert.equal(model.cells[0].rowId, "s-todo");
+  assert.equal(model.cells[0].colId, "b-work");
+  assert.equal(model.cells[0].tasks.length, 1);
+  assert.equal(model.cells[0].tasks[0].id, "test.md:L1");
+
+  // Verify no empty cells remain
+  const emptyCells = model.cells.filter((c) => c.tasks.length === 0);
+  assert.equal(emptyCells.length, 0, "No empty cells with showEmptyBuckets=false");
+});
+
+test("M4: showEmptyBuckets=false does not change unmatched behavior", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Work task", tags: ["#work"], status: "todo", effectiveStatus: "todo" }),
+    effectiveTask({ id: "test.md:L2", title: "Unmatched", tags: [], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  // Build both models with identical configs except showEmptyBuckets
+  const modelTrue = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        showEmptyBuckets: true,
+      },
+    },
+    1,
+  );
+
+  const modelFalse = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        showEmptyBuckets: false,
+      },
+    },
+    1,
+  );
+
+  // Unmatched is identical regardless of showEmptyBuckets
+  assert.equal(modelTrue.unmatched.length, modelFalse.unmatched.length, "Unmatched count unchanged");
+  assert.deepEqual(
+    modelTrue.unmatched.map((t) => t.id).sort(),
+    modelFalse.unmatched.map((t) => t.id).sort(),
+    "Unmatched task IDs identical",
+  );
+});
+
+test("M4: showEmptyBuckets=false does not change multiMatch=first behavior", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Multi-tag", tags: ["#work", "#personal"], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        showEmptyBuckets: false,
+      },
+    },
+    1,
+  );
+
+  // With multiMatch=first, the task appears exactly once
+  const allCellTaskIds = model.cells.flatMap((c) => c.tasks.map((t) => t.id));
+  const l1Count = allCellTaskIds.filter((id) => id === "test.md:L1").length;
+  assert.equal(l1Count, 1, "Task appears exactly once with multiMatch=first and showEmptyBuckets=false");
+
+  // Only 1 non-empty cell (the one with the task)
+  assert.equal(model.cells.length, 1, "Only one cell visible (non-empty)");
+});
+
+test("M4: showEmptyBuckets=false does not change multiMatch=duplicate behavior", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Multi-tag", tags: ["#work", "#personal"], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "duplicate",
+        showEmptyBuckets: false,
+      },
+    },
+    1,
+  );
+
+  // With multiMatch=duplicate, the task appears in both matching cells
+  const allCellTaskIds = model.cells.flatMap((c) => c.tasks.map((t) => t.id));
+  const l1Count = allCellTaskIds.filter((id) => id === "test.md:L1").length;
+  assert.equal(l1Count, 2, "Task appears in both cells with multiMatch=duplicate and showEmptyBuckets=false");
+  assert.equal(model.cells.length, 2, "2 non-empty cells visible");
+});
+
+test("M4: showEmptyBuckets=false with no tasks — all cells empty → zero cells returned", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    // No tasks match any bucket
+    effectiveTask({ id: "test.md:L1", title: "No match", tags: [], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-done", title: "Done", when: { status: "done" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        showEmptyBuckets: false,
+      },
+    },
+    1,
+  );
+
+  assert.equal(model.type, "matrix");
+  assert.equal(model.cells.length, 0, "All cells empty → no cells with showEmptyBuckets=false");
+  assert.equal(model.unmatched.length, 1, "Unmatched still captures non-matching task");
+});
+
+test("M4: showEmptyBuckets default fallback — missing field preserves all cells", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Work task", tags: ["#work"], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "first",
+        // showEmptyBuckets intentionally absent
+      },
+    },
+    1,
+  );
+
+  // Default behavior: keep all cells (same as showEmptyBuckets=true)
+  assert.equal(model.type, "matrix");
+  assert.equal(model.cells.length, 2, "Without showEmptyBuckets field, all 2 cells preserved");
+});
+
+test("M4: showEmptyBuckets=true with multiMatch=duplicate — empty cells remain", async () => {
+  if (compileErr) throw compileErr;
+
+  const { applyViewProjection } = await import("../test/.compiled/projection.js");
+
+  const tasks = [
+    effectiveTask({ id: "test.md:L1", title: "Work task", tags: ["#work"], status: "todo", effectiveStatus: "todo" }),
+  ];
+
+  const model = applyViewProjection(
+    tasks,
+    {
+      type: "matrix",
+      matrix: {
+        x: {
+          id: "x-tags",
+          title: "Tags",
+          buckets: [
+            { id: "b-work", title: "Work", when: { tags: ["#work"] } },
+            { id: "b-personal", title: "Personal", when: { tags: ["#personal"] } },
+          ],
+        },
+        y: {
+          id: "y-status",
+          title: "Status",
+          buckets: [
+            { id: "s-todo", title: "TODO", when: { status: "todo" } },
+            { id: "s-done", title: "Done", when: { status: "done" } },
+          ],
+        },
+        unmatched: "show",
+        multiMatch: "duplicate",
+        showEmptyBuckets: true,
+      },
+    },
+    1,
+  );
+
+  // 2×2 = 4 cells, all preserved
+  assert.equal(model.cells.length, 4, "showEmptyBuckets=true preserves all 4 cells with multiMatch=duplicate");
+  const emptyCells = model.cells.filter((c) => c.tasks.length === 0);
+  assert.ok(emptyCells.length > 0, "Empty cells exist with showEmptyBuckets=true");
+});
