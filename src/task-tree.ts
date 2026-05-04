@@ -128,14 +128,20 @@ function findTerminalAncestor(
     if (!ancestor) break;
     const a = ancestor.task;
     // US-144a: parent `[-]` dropped also terminates children.
-    // `#dropped` tag on a bullet (non-task) ancestor also propagates
-    // via inheritsTerminal — handled in parseFileTasks already.
+    // When the ancestor carries inheritedTerminalKind (e.g. from a
+    // non-task `#dropped` bullet), use that kind directly.
     if (TERMINAL_STATUSES.has(a.status) || a.inheritsTerminal) {
+      let terminalStatus: TaskStatus;
+      if (a.inheritedTerminalKind) {
+        terminalStatus = a.inheritedTerminalKind;
+      } else if (a.status === "todo" || a.status === "in_progress" || a.status === "custom") {
+        terminalStatus = "done";
+      } else {
+        terminalStatus = a.status;
+      }
       return {
         terminalId: a.id,
-        terminalStatus: a.status === "todo" || a.status === "in_progress" || a.status === "custom"
-          ? "done"
-          : a.status,
+        terminalStatus,
       };
     }
     cursor = a.parentLine;
@@ -195,10 +201,22 @@ export function deriveEffectiveTasks(tasks: ParsedTask[]): EffectiveTask[] {
     const inh = inherited.get(t.id)!;
     const term = terminal.get(t.id)!;
 
-    const effectiveStatus: TaskStatus =
-      term.terminalStatus !== null
-        ? term.terminalStatus
-        : t.status;
+    // effectiveStatus: first check if a task ancestor is terminal;
+    // if not, check if the task itself carries inheritedTerminalKind
+    // from a non-task ancestor (e.g. `#dropped` section header).
+    let effectiveStatus: TaskStatus;
+    let terminalInheritedFrom: string | null;
+    if (term.terminalStatus !== null) {
+      effectiveStatus = term.terminalStatus;
+      terminalInheritedFrom = term.terminalId;
+    } else if (t.inheritedTerminalKind) {
+      effectiveStatus = t.inheritedTerminalKind;
+      // Non-task source — point to self as the carrier.
+      terminalInheritedFrom = t.id;
+    } else {
+      effectiveStatus = t.status;
+      terminalInheritedFrom = null;
+    }
 
     const eft: EffectiveTask = {
       ...t,
@@ -206,7 +224,7 @@ export function deriveEffectiveTasks(tasks: ParsedTask[]): EffectiveTask[] {
       effectiveScheduled: inh.effectiveScheduled,
       effectiveDeadline: inh.effectiveDeadline,
       effectiveCreated: inh.effectiveCreated,
-      terminalInheritedFrom: term.terminalId,
+      terminalInheritedFrom,
       renderParentId: null,
       isTopLevelInQuery: false,
     };

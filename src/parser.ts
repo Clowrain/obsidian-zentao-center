@@ -216,6 +216,7 @@ export function parseTaskFromLine(
     hash,
     mtime,
     inheritsTerminal: false,
+    inheritedTerminalKind: null,
   };
 }
 
@@ -276,19 +277,25 @@ export async function parseFileTasks(
         if (parent) parent.childrenLines.push(lineNum);
       }
     }
-    // Compute inheritsTerminal by walking ancestor chain through ALL list items
-    const isTerminal = (node: AncestorNode): boolean => {
-      if (node.task === "x" || node.task === "X" || node.task === "-") return true;
-      if (node.tags.includes("#dropped")) return true;
-      return false;
+    // Compute inheritsTerminal by walking ancestor chain through ALL list items.
+    // Also record inheritedTerminalKind so EffectiveTask derivation can use the
+    // correct terminal kind (done/dropped) even when the source is a non-task
+    // bullet or section header.
+    const terminalKind = (node: AncestorNode): TaskStatus | null => {
+      if (node.task === "x" || node.task === "X") return "done";
+      if (node.task === "-") return "dropped";
+      if (node.tags.includes("#dropped")) return "dropped";
+      return null;
     };
     for (const [, task] of byLine) {
       let cursor = task.parentIndex;
       while (cursor !== null && cursor !== undefined && cursor >= 0) {
         const node = allNodes.get(cursor);
         if (!node) break;
-        if (isTerminal(node)) {
+        const kind = terminalKind(node);
+        if (kind !== null) {
           task.inheritsTerminal = true;
+          task.inheritedTerminalKind = kind;
           break;
         }
         cursor = node.parentLine >= 0 ? node.parentLine : null;

@@ -51,6 +51,14 @@ export interface ParsedTask {
   // below it — the cascade complement of US-145).
   // see USER_STORIES.md
   inheritsTerminal: boolean;
+  // US-144a: the actual terminal kind propagated from the nearest terminal
+  // ancestor (task or non-task bullet). When set, EffectiveTask derivation
+  // uses this instead of mapping the task's own status or the ancestor's
+  // status. This preserves the correct semantics when the terminal source
+  // is a non-task bullet (e.g. `- #dropped`), a `[-]` dropped parent, or
+  // a `[x]` done section header.
+  // see USER_STORIES.md
+  inheritedTerminalKind: TaskStatus | null;
 }
 
 export interface TaskCenterSettings {

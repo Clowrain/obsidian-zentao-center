@@ -106,7 +106,8 @@ function mkTasks(defs) {
       childrenLines: [],
       hash,
       mtime: 1000,
-      inheritsTerminal: false,
+      inheritsTerminal: opts.inheritsTerminal ?? false,
+      inheritedTerminalKind: opts.inheritedTerminalKind ?? null,
     });
   }
   return tasks;
@@ -387,4 +388,142 @@ test("VAL-CORE-004: sibling tasks at same indent level are all top-level", () =>
   assert.equal(eff[1].isTopLevelInQuery, true);
   assert.equal(eff[2].isTopLevelInQuery, true);
   assert.equal(countTopLevel(eff), 3);
+});
+
+// ── fix-m1-effective-terminal-inheritance ──
+// Non-task bullet/section with #dropped / [-] terminal marker
+// makes descendant tasks effectiveStatus dropped (not done, not active).
+
+test("US-144a: non-task #dropped section makes descendant todo task dropped", () => {
+  // Simulates: - #dropped My Section
+  //              - [ ] Task A        (inheritsTerminal from non-task #dropped)
+  const tasks = mkTasks([
+    [0, "  ",  " ", "TaskA", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "dropped",
+    }],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[0].effectiveStatus, "dropped",
+    "task under #dropped section should be dropped");
+  assert.equal(eff[0].terminalInheritedFrom, eff[0].id,
+    "terminalInheritedFrom should point to self when source is non-task");
+});
+
+test("US-144a: non-task #dropped section cascades through multiple task levels", () => {
+  // Simulates: - #dropped My Section
+  //              - [ ] Task A        (inheritsTerminal=dropped)
+  //                - [ ] Task B      (inheritsTerminal=dropped, from non-task via chain)
+  //                  - [ ] Task C    (inheritsTerminal=dropped, from non-task via chain)
+  // Note: the parser sets inheritedTerminalKind on every descendant that
+  // can walk to a terminal ancestor, so intermediate tasks also carry it.
+  const tasks = mkTasks([
+    [0, "  ",  " ", "TaskA", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "dropped",
+    }],
+    [1, "    ", " ", "TaskB", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "dropped",
+    }],
+    [2, "      ", " ", "TaskC", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "dropped",
+    }],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  // Task A: directly inherits from non-task #dropped
+  assert.equal(eff[0].effectiveStatus, "dropped",
+    "Task A under #dropped section should be dropped");
+  // Task B: inherits terminal from Task A
+  assert.equal(eff[1].effectiveStatus, "dropped",
+    "Task B under dropped parent should be dropped");
+  assert.equal(eff[1].terminalInheritedFrom, eff[0].id);
+  // Task C: deep descendant
+  assert.equal(eff[2].effectiveStatus, "dropped",
+    "deep descendant should preserve dropped kind");
+  assert.equal(eff[2].terminalInheritedFrom, eff[1].id);
+});
+
+test("US-144a: dropped parent task cascades dropped (not done) to children", () => {
+  // A dropped task's children should become dropped, not done.
+  const tasks = mkTasks([
+    [0, "",    "-", "DroppedParent"],
+    [1, "  ",  " ", "TodoChild"],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[1].effectiveStatus, "dropped",
+    "child of dropped parent should be dropped, not done");
+  assert.equal(eff[1].terminalInheritedFrom, eff[0].id);
+});
+
+test("US-144a: done terminal kind remains done through deep descendants", () => {
+  // A done parent's children should remain done (not collapsed to something else).
+  const tasks = mkTasks([
+    [0, "",    "x", "DoneGP"],
+    [1, "  ",  " ", "TodoP"],
+    [2, "    "," ", "TodoC"],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[1].effectiveStatus, "done");
+  assert.equal(eff[2].effectiveStatus, "done");
+});
+
+test("US-144a: non-task [x] section makes descendant task done", () => {
+  // Simulates: - [x] Completed Section
+  //              - [ ] Task A        (inheritsTerminal from non-task [x])
+  const tasks = mkTasks([
+    [0, "  ",  " ", "TaskA", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "done",
+    }],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[0].effectiveStatus, "done",
+    "task under [x] section should be done");
+  assert.equal(eff[0].terminalInheritedFrom, eff[0].id,
+    "terminalInheritedFrom should point to self when source is non-task");
+});
+
+test("US-144a: done task ancestor with inheritedTerminalKind=done passes done to child", () => {
+  // Task A inherits done from non-task section; Task B (child of A) should also be done.
+  const tasks = mkTasks([
+    [0, "  ",  " ", "TaskA", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "done",
+    }],
+    [1, "    ", " ", "TaskB", {
+      inheritsTerminal: true,
+    }],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[0].effectiveStatus, "done");
+  assert.equal(eff[1].effectiveStatus, "done");
+  assert.equal(eff[1].terminalInheritedFrom, eff[0].id);
+});
+
+test("US-144a: dropped kind survives through terminal cascade, done does not collapse it", () => {
+  // Task A: inheritsTerminal=dropped from non-task source
+  // Task B: child of A, should also be dropped (not done)
+  const tasks = mkTasks([
+    [0, "  ",  " ", "TaskA", {
+      inheritsTerminal: true,
+      inheritedTerminalKind: "dropped",
+    }],
+    [1, "    ", " ", "TaskB", {}],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[0].effectiveStatus, "dropped");
+  assert.equal(eff[1].effectiveStatus, "dropped",
+    "child of dropped-inheriting task must be dropped, not done");
+  assert.equal(eff[1].terminalInheritedFrom, eff[0].id);
+});
+
+test("US-144a: terminalInheritedFrom is null when task has no terminal ancestor", () => {
+  const tasks = mkTasks([
+    [0, "",    " ", "NormalTask"],
+  ]);
+  const eff = deriveEffectiveTasks(tasks);
+  assert.equal(eff[0].terminalInheritedFrom, null);
+  assert.equal(eff[0].effectiveStatus, "todo");
 });
