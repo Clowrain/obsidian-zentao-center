@@ -2960,11 +2960,27 @@ export class TaskCenterView extends ItemView {
         if (!id) return;
         e.preventDefault();
         el.removeClass("drop-hover");
+        // US-128: push abandon mutations to the undo stack so the user
+        // can recover via Ctrl/Cmd+Z. Same pattern as makeDropZone and
+        // swipeAction — capture the before/after byte diff.
+        const task = this.tasks.find((t) => t.id === id);
+        const work = async () => {
+          const r = await this.api.drop(id);
+          if (!r.unchanged && task) {
+            this.undoStack.push({
+              label: tr("dnd.droppedUndo"),
+              ops: [{
+                path: task.path,
+                line: task.line,
+                before: [r.before],
+                after: [r.after],
+              }],
+            });
+          }
+          new Notice(tr("trash.dropped"));
+        };
         try {
-          await this.runWithRemoveAnim(id, async () => {
-            await this.api.drop(id);
-            new Notice(tr("trash.dropped"));
-          });
+          await this.runWithRemoveAnim(id, work);
         } catch (err) {
           new Notice(tr("notice.error", { msg: (err as Error).message }), 4000);
           this.scheduleRefresh();
@@ -3768,6 +3784,18 @@ export class TaskCenterView extends ItemView {
         e.preventDefault();
         el.removeClass("drop-hover");
         const task = this.tasks.find((t) => t.id === id);
+        // US-122a: when clearing schedule via tray and the task's effective
+        // schedule is inherited from a parent (no own ⏳), warn the user
+        // instead of silently no-oping. Inherited schedules cannot be
+        // cleared by drag — the user must edit source or move the task
+        // out of its parent subtree first.
+        if (targetDate === null && task && !task.scheduled) {
+          const effectiveTask = this.getEffectiveTasks().find((t) => t.id === id);
+          if (effectiveTask?.effectiveScheduled) {
+            new Notice(tr("dnd.inheritedSchedule"), 4000);
+            return;
+          }
+        }
         const willMove = !task || (task.scheduled ?? null) !== targetDate;
         const work = async () => {
           const r = await this.api.schedule(id, targetDate);

@@ -64,6 +64,9 @@ const EN = {
   "trash.title": "Abandon",
   "trash.hint": "Drop here → [-] ❌",
   "trash.dropped": "Abandoned",
+  "dnd.inheritedSchedule":
+    "Schedule is inherited from parent; edit source or move out of parent first.",
+  "dnd.droppedUndo": "dropped",
 
   // US-504: mobile month tab uses calendar-grid + dot density + tap-day
   // bottom sheet listing the day's tasks. This empty-state string powers
@@ -412,6 +415,9 @@ const ZH: Partial<typeof EN> = {
   "trash.title": "放弃区",
   "trash.hint": "拖到此处 → [-] ❌",
   "trash.dropped": "已放弃",
+  "dnd.inheritedSchedule":
+    "排期继承自父任务，请编辑源 Markdown 或将任务移出父级。",
+  "dnd.droppedUndo": "放弃",
 
   "sheet.empty": "这一天没有任务。",
 
