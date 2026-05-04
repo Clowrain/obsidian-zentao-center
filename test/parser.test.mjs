@@ -224,3 +224,143 @@ test("isValidISO", () => {
   assert.ok(!isValidISO("hello"));
   assert.ok(!isValidISO(null));
 });
+
+// ── VAL-CORE-001: Obsidian Tasks field coverage ──
+
+test("VAL-CORE-001: parseTaskFromLine extracts Obsidian Tasks emoji fields", () => {
+  const task = parseTaskFromLine(
+    "test.md",
+    0,
+    "- [ ] task ⏳ 2026-04-24 📅 2026-05-15 🛫 2026-04-20 ✅ 2026-04-23 ❌ 2026-04-22 ➕ 2026-04-19",
+    null,
+    0,
+  );
+  assert.equal(task?.scheduled, "2026-04-24");
+  assert.equal(task?.deadline, "2026-05-15");
+  assert.equal(task?.start, "2026-04-20");
+  assert.equal(task?.completed, "2026-04-23");
+  assert.equal(task?.cancelled, "2026-04-22");
+  assert.equal(task?.created, "2026-04-19");
+});
+
+test("VAL-CORE-001: parseTaskFromLine extracts priority emoji", () => {
+  const high = parseTaskFromLine("test.md", 0, "- [ ] urgent task ⏫", null, 0);
+  assert.equal(high?.priority, "⏫");
+
+  const highest = parseTaskFromLine("test.md", 0, "- [ ] critical 🔺", null, 0);
+  assert.equal(highest?.priority, "🔺");
+
+  const medium = parseTaskFromLine("test.md", 0, "- [ ] normal task 🔼", null, 0);
+  assert.equal(medium?.priority, "🔼");
+
+  const low = parseTaskFromLine("test.md", 0, "- [ ] low prio 🔽", null, 0);
+  assert.equal(low?.priority, "🔽");
+
+  const lowest = parseTaskFromLine("test.md", 0, "- [ ] meh ⏬", null, 0);
+  assert.equal(lowest?.priority, "⏬");
+
+  // No priority
+  const none = parseTaskFromLine("test.md", 0, "- [ ] plain task", null, 0);
+  assert.equal(none?.priority, null);
+});
+
+test("VAL-CORE-001: parseTaskFromLine extracts recurrence", () => {
+  const weekly = parseTaskFromLine(
+    "test.md",
+    0,
+    "- [ ] review notes 🔁 every week ⏳ 2026-04-24",
+    null,
+    0,
+  );
+  assert.equal(weekly?.recurrence, "every week");
+
+  const daily = parseTaskFromLine(
+    "test.md",
+    0,
+    "- [ ] standup 🔁 every day",
+    null,
+    0,
+  );
+  assert.equal(daily?.recurrence, "every day");
+
+  // No recurrence
+  const none = parseTaskFromLine("test.md", 0, "- [ ] plain task", null, 0);
+  assert.equal(none?.recurrence, null);
+});
+
+test("VAL-CORE-001: parseTaskFromLine computes calloutDepth", () => {
+  const plain = parseTaskFromLine("test.md", 0, "- [ ] plain task", null, 0);
+  assert.equal(plain?.calloutDepth, 0);
+
+  const single = parseTaskFromLine("test.md", 0, "> - [ ] callout task", null, 0);
+  assert.equal(single?.calloutDepth, 1);
+
+  const nested = parseTaskFromLine("test.md", 0, "> > - [x] deep callout", null, 0);
+  assert.equal(nested?.calloutDepth, 2);
+
+  const indentedCallout = parseTaskFromLine("test.md", 0, "    > - [ ] indented callout", null, 0);
+  assert.equal(indentedCallout?.calloutDepth, 1);
+});
+
+test("VAL-CORE-001: empty-title task line is ignored", () => {
+  const empty = parseTaskFromLine("test.md", 0, "- [ ]", null, 0);
+  assert.equal(empty, null);
+
+  const onlySpaces = parseTaskFromLine("test.md", 0, "- [ ]   ", null, 0);
+  assert.equal(onlySpaces, null);
+});
+
+test("VAL-CORE-001: rawTitle preserves user literals", () => {
+  const task = parseTaskFromLine(
+    "test.md",
+    0,
+    "- [ ] my task #mytag [[wikilink]] 🔺 ⏳ 2026-04-24 📅 2026-05-15 [estimate:: 1h] [owner:: 我] ^block123",
+    null,
+    0,
+  );
+  // rawTitle must contain everything after the checkbox
+  assert.ok(task?.rawTitle.includes("#mytag"));
+  assert.ok(task?.rawTitle.includes("[[wikilink]]"));
+  assert.ok(task?.rawTitle.includes("⏳ 2026-04-24"));
+  assert.ok(task?.rawTitle.includes("[estimate:: 1h]"));
+  assert.ok(task?.rawTitle.includes("[owner:: 我]"));
+  assert.ok(task?.rawTitle.includes("^block123"));
+  assert.ok(task?.rawTitle.includes("🔺"));
+});
+
+test("VAL-CORE-001: rawLine is the exact original line", () => {
+  const raw = "- [ ] original line text  ⏳ 2026-04-24  ";
+  const task = parseTaskFromLine("test.md", 0, raw, null, 0);
+  assert.equal(task?.rawLine, raw);
+});
+
+test("VAL-CORE-001: duplicate tags are preserved in tags array but deduped in display", () => {
+  const task = parseTaskFromLine(
+    "test.md",
+    0,
+    "- [ ] task #tag1 #tag2 #tag1",
+    null,
+    0,
+  );
+  // tags array contains all hashtags including duplicates
+  assert.deepEqual(task?.tags, ["#tag1", "#tag2", "#tag1"]);
+});
+
+test("VAL-CORE-001: inline duration fields are parsed generically", () => {
+  const task = parseTaskFromLine(
+    "test.md",
+    0,
+    "- [ ] task [planned:: 2h] [spent:: 45m] [custom:: hello]",
+    null,
+    0,
+  );
+  assert.deepEqual(task?.inlineFields, {
+    planned: ["2h"],
+    spent: ["45m"],
+    custom: ["hello"],
+  });
+  assert.deepEqual(task?.durationFields, {
+    planned: 120,
+    spent: 45,
+  });
+});

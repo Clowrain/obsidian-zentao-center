@@ -22,6 +22,14 @@ export interface ParsedTask {
   completed: string | null;
   cancelled: string | null;
   created: string | null;
+  // US-142a: recurrence text from 🔁 token (e.g. "every week"). Consumed
+  // greedily up to the next metadata boundary in parser.ts META_STRIP_RE.
+  recurrence: string | null;
+  // US-142a: priority emoji (🔺⏫🔼🔽⏬). Parsed from the raw title line.
+  priority: string | null;
+  // US-125: callout nesting depth — number of `> ` prefixes so the
+  // writer can reconstruct the exact callout indent when writing back.
+  calloutDepth: number;
   inlineFields: Record<string, string[]>;
   durationFields: Record<string, number>;
   // Backward-compatible aliases for the default summary preset. New UI and

@@ -32,6 +32,17 @@ const META_STRIP_RE = /🔁\s*[^⏳📅🛫✅❌➕#[\]^]+|(⏳|📅|🛫|✅|�
 // see USER_STORIES.md
 const INLINE_FIELD_RE = /\[([^[\n:]+)::\s*([^\]]*)\]/g;
 const INLINE_FIELD_STRIP_RE = /\[[^[\n:]+::\s*[^\]]*\]/g;
+// US-142a: Priority emoji (Obsidian Tasks compatible): 🔺 highest,
+// ⏫ high, 🔼 medium, 🔽 low, ⏬ lowest. Captured as a single-character
+// field on ParsedTask; stripped from cleanTitle by META_STRIP_RE.
+// see USER_STORIES.md
+const PRIORITY_RE = /[🔺⏫🔼🔽⏬]/u;
+// US-142a: Recurrence rule — 🔁 followed by a whitespace-separated
+// description, consumed greedily up to the next known token boundary
+// (another emoji field, an inline field, or end-of-line). The raw
+// recurrence text is stored on ParsedTask for byte-preserving writes.
+// see USER_STORIES.md
+const RECURRENCE_RE = /🔁\s*(\S+(?:\s+\S+)*?)(?=\s*(?:⏳|📅|🛫|✅|❌|➕|[🔺⏫🔼🔽⏬]|\[|$))/u;
 // Obsidian block reference anchors: `^blockid` at a word boundary
 const BLOCK_REF_STRIP_RE = /(?:^|\s)\^[A-Za-z0-9_-]+(?=\s|$)/g;
 const BLOCK_REF_WITH_HASH_STRIP_RE = /(?:^|\s)#\^[A-Za-z0-9_-]+(?=\s|$)/g;
@@ -146,7 +157,11 @@ export function parseTaskFromLine(
 ): ParsedTask | null {
   const parsed = parseTaskLine(rawLine);
   if (!parsed) return null;
+  // US-107: ignore empty-title task lines. A checkbox with nothing
+  // after it (or only whitespace) is not a real task — it's a
+  // placeholder or an editing artifact.
   if (listItem && listItem.task === undefined) return null;
+  if (parsed.content.trim().length === 0) return null;
 
   const content = parsed.content;
   const tagMatches = extractMarkdownTags(content);
@@ -156,6 +171,13 @@ export function parseTaskFromLine(
   const completed = content.match(DONE_RE)?.[1] ?? null;
   const cancelled = content.match(CANCELLED_RE)?.[1] ?? null;
   const created = content.match(CREATED_RE)?.[1] ?? null;
+  // US-142a: parse priority and recurrence from the raw content line
+  // so they are available for writer byte-preservation and card rendering.
+  const priority = content.match(PRIORITY_RE)?.[0] ?? null;
+  const recurrence = content.match(RECURRENCE_RE)?.[1]?.trim() ?? null;
+  // US-406: calloutDepth counts `>` characters in the indent so the
+  // writer can reconstruct the exact callout prefix when writing back.
+  const calloutDepth = (parsed.indent.match(/>/g) || []).length;
   const { inlineFields, durationFields } = parseInlineFields(content);
   const estimate = durationFields.estimate ?? null;
   const actual = durationFields.actual ?? null;
@@ -181,6 +203,9 @@ export function parseTaskFromLine(
     completed,
     cancelled,
     created,
+    recurrence,
+    priority,
+    calloutDepth,
     inlineFields,
     durationFields,
     estimate,

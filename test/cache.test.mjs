@@ -363,3 +363,137 @@ test("dispose: clears state and unsubscribes listeners", async () => {
   await cache.forFlush();
   assert.equal(events.length, 0);
 });
+
+// ── VAL-CORE-003: TaskCache is the only vault read path ──
+
+test("VAL-CORE-003: cache construction does NOT trigger ensureAll (onload safety)", () => {
+  const app = makeApp([
+    { path: "Tasks/t1.md", hasTask: true, content: "- [ ] One\n" },
+    { path: "Tasks/t2.md", hasTask: true, content: "- [ ] Two\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+
+  // After construction + bind, no file should have been parsed.
+  assert.equal(cache.__stats.ensureCount, 0);
+  assert.equal(cache.__stats.parseCount, 0);
+  assert.equal(cache.flatten().length, 0);
+});
+
+test("VAL-CORE-003: single-file change invalidates only the affected file", async () => {
+  const app = makeApp([
+    { path: "Tasks/a.md", hasTask: true, content: "- [ ] Alpha\n" },
+    { path: "Tasks/b.md", hasTask: true, content: "- [ ] Bravo\n" },
+    { path: "Tasks/c.md", hasTask: true, content: "- [ ] Charlie\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const beforeParse = cache.__stats.parseCount;
+
+  // Change only file b.
+  app._setContent("Tasks/b.md", "- [ ] Bravo updated\n");
+  app._fireMetaChanged("Tasks/b.md");
+  await cache.forFlush();
+
+  // Exactly ONE additional parse.
+  assert.equal(
+    cache.__stats.parseCount - beforeParse,
+    1,
+    "single-file invalidation must parse exactly one file",
+  );
+
+  // Verify a and c are unchanged.
+  const tasks = cache.flatten();
+  const a = tasks.find((t) => t.path === "Tasks/a.md");
+  const c = tasks.find((t) => t.path === "Tasks/c.md");
+  assert.ok(a, "unchanged file a should still be in cache");
+  assert.ok(c, "unchanged file c should still be in cache");
+  assert.match(a.rawLine, /Alpha/);
+  assert.match(c.rawLine, /Charlie/);
+});
+
+test("VAL-CORE-003: changed event carries only the affected path", async () => {
+  const app = makeApp([
+    { path: "Tasks/x.md", hasTask: true, content: "- [ ] X\n" },
+    { path: "Tasks/y.md", hasTask: true, content: "- [ ] Y\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const events = [];
+  cache.on("changed", (paths) => events.push(new Set(paths)));
+
+  app._setContent("Tasks/x.md", "- [ ] X updated\n");
+  app._fireMetaChanged("Tasks/x.md");
+  await cache.forFlush();
+
+  assert.equal(events.length, 1);
+  assert.deepEqual(Array.from(events[0]), ["Tasks/x.md"]);
+  // y.md must not appear in the changed set.
+  assert.ok(!events[0].has("Tasks/y.md"));
+});
+
+test("VAL-CORE-003: resolveRef path:Lnnn on cold cache does not load other files", async () => {
+  // A vault with many files — resolveRef for ONE path must parse only that
+  // file, not trigger a vault-wide scan.
+  const specs = [];
+  for (let i = 0; i < 100; i++) {
+    specs.push({
+      path: `Vault/f${i}.md`,
+      hasTask: true,
+      metaIndexed: true,
+      content: `- [ ] Task ${i}\n`,
+    });
+  }
+  const app = makeApp(specs);
+  const cache = new TaskCache(app);
+  cache.bind();
+
+  const t = await cache.resolveRef("Vault/f42.md:L1");
+  assert.ok(t, "should resolve the single ref");
+  assert.equal(cache.__stats.parseCount, 1, "must parse ONLY the requested file");
+  assert.equal(cache.__stats.ensureCount, 0, "must NOT trigger ensureAll");
+});
+
+test("VAL-CORE-003: rename event remaps path without re-parsing", async () => {
+  const app = makeApp([
+    { path: "Tasks/old.md", hasTask: true, content: "- [ ] Old\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const beforeParse = cache.__stats.parseCount;
+
+  const oldFile = app._byPath.get("Tasks/old.md");
+  const newFile = new TFile();
+  newFile.path = "Tasks/new.md";
+  newFile.extension = "md";
+  newFile.stat = { mtime: 2000 };
+  newFile._content = oldFile._content;
+  newFile._hasTask = true;
+  newFile._metaIndexed = true;
+  app._byPath.delete("Tasks/old.md");
+  app._byPath.set("Tasks/new.md", newFile);
+  const idx = app._files.indexOf(oldFile);
+  if (idx >= 0) app._files.splice(idx, 1);
+  app._files.push(newFile);
+
+  app._fireVault("rename", newFile, "Tasks/old.md");
+  await cache.forFlush();
+
+  // Rename should remap without re-parsing the same bytes.
+  assert.equal(
+    cache.__stats.parseCount,
+    beforeParse,
+    "rename must NOT re-parse",
+  );
+
+  const tasks = cache.flatten();
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].path, "Tasks/new.md");
+  assert.equal(tasks[0].id, "Tasks/new.md:L1");
+});
