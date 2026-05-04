@@ -611,6 +611,28 @@ test("formatOkWrite — rename task", () => {
   assert.match(out, /after\s+- \[ \] new title ⏳ 2026-05-05$/m);
 });
 
+// VAL-CLI-002: rename — titleOverride prevents stale-cache output
+test("formatOkWrite — rename with titleOverride shows new title when cache is stale", () => {
+  // Simulate stale cache: the task object still has the OLD title, but the
+  // rename operation already succeeded with the NEW title. titleOverride
+  // ensures the output header displays the new title.
+  const staleTask = mkTask({ id: "f.md:L1", title: "old title" }); // stale cache
+  const before = "- [ ] old title ⏳ 2026-05-05";
+  const after = "- [ ] new title ⏳ 2026-05-05";
+  const out = formatOkWrite(staleTask, null, null, before, after, false, "renamed", undefined, "new title");
+  assert.match(out, /ok\s+f\.md:L1\s+new title/, "header should show the override title, not the stale one");
+  assert.match(out, /before\s+- \[ \] old title ⏳ 2026-05-05$/m);
+  assert.match(out, /after\s+- \[ \] new title ⏳ 2026-05-05$/m);
+});
+
+test("formatOkWrite — rename unchanged with titleOverride (no-op rename)", () => {
+  const staleTask = mkTask({ id: "f.md:L1", title: "same title" });
+  const line = "- [ ] same title ⏳ 2026-05-05";
+  const out = formatOkWrite(staleTask, null, null, line, line, true, "renamed", undefined, "same title");
+  assert.match(out, /ok\s+f\.md:L1\s+same title/);
+  assert.match(out, /unchanged/);
+});
+
 // VAL-CLI-003: error format for all error codes
 test("formatError — not_found produces localized fallback", () => {
   const out = formatError("not_found", "Tasks/Inbox.md:L42");

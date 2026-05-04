@@ -976,9 +976,10 @@ export function formatOkWrite(
   unchanged: boolean,
   action: string,
   extraNote?: string,
+  titleOverride?: string,
 ): string {
   const ref = task ? task.id : path && line !== null ? `${path}:L${line + 1}` : "-";
-  const title = task ? task.title : "";
+  const title = titleOverride ?? (task ? task.title : "");
   const label = extraNote ?? (unchanged ? "unchanged" : action);
   const out: string[] = [];
   out.push(`ok  ${ref}  ${title}`);

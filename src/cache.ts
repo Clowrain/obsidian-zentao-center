@@ -34,6 +34,10 @@ export class TaskCache {
   private readonly byHash = new Map<string, ParsedTask[]>();
   private readonly pending = new Map<string, Promise<FileEntry | null>>();
   private readonly listeners = new Set<ChangedListener>();
+  // US-208 / VAL-CLI-004: persists "path:Lnn → hash" mappings from previous
+  // cache entries so that stale path:line refs can recover by hash even after
+  // the cache has been re-parsed and the old entry is gone.
+  private readonly staleHashByRef = new Map<string, string>();
   private allLoaded = false;
   private allLoadingPromise: Promise<ParsedTask[]> | null = null;
   private _flatCache: ParsedTask[] | null = null;
@@ -160,7 +164,12 @@ export class TaskCache {
   private replaceEntry(path: string, next: FileEntry): void {
     const prev = this.byPath.get(path);
     if (prev) {
-      for (const t of prev.tasks) this.removeFromHash(t);
+      for (const t of prev.tasks) {
+        this.removeFromHash(t);
+        // Persist the old hash mapping for stale-ref recovery (US-208, VAL-CLI-004).
+        const ref = `${t.path}:L${t.line + 1}`;
+        this.staleHashByRef.set(ref, t.hash);
+      }
     }
     this.byPath.set(path, next);
     for (const t of next.tasks) this.addToHash(t);
@@ -170,7 +179,12 @@ export class TaskCache {
   private dropPath(path: string): void {
     const prev = this.byPath.get(path);
     if (!prev) return;
-    for (const t of prev.tasks) this.removeFromHash(t);
+    for (const t of prev.tasks) {
+      this.removeFromHash(t);
+      // Persist hash for stale-ref recovery even after file deletion.
+      const ref = `${t.path}:L${t.line + 1}`;
+      this.staleHashByRef.set(ref, t.hash);
+    }
     this.byPath.delete(path);
     this._flatCache = null;
     this.emit(new Set([path]));
@@ -182,7 +196,12 @@ export class TaskCache {
     // Remap path on cached tasks rather than reparsing — file bytes haven't
     // changed; only the path identifier did. metadataCache.changed will fire
     // for the renamed file shortly and re-parse will pick up the new id.
-    for (const t of prev.tasks) this.removeFromHash(t);
+    for (const t of prev.tasks) {
+      this.removeFromHash(t);
+      // Persist old ref→hash for stale-ref recovery.
+      const oldRef = `${t.path}:L${t.line + 1}`;
+      this.staleHashByRef.set(oldRef, t.hash);
+    }
     const remapped: ParsedTask[] = prev.tasks.map((t) => ({
       ...t,
       path: newPath,
@@ -337,6 +356,30 @@ export class TaskCache {
       }
       const t = entry.tasks.find((task) => task.line === parsed.line);
       if (t) return t;
+
+      // US-208 / VAL-CLI-004: stale path:Lnn ref — try hash-based recovery.
+      // The staleHashByRef map persists old path:line → hash mappings from
+      // previous cache entries, so even after the cache has been re-parsed
+      // and the task moved, we can still find it by hash.
+      const staleRef = `${parsed.path}:L${(parsed.line ?? 0) + 1}`;
+      const fallbackHash = this.staleHashByRef.get(staleRef);
+      if (fallbackHash) {
+        let matches = this.byHash.get(fallbackHash);
+        if (!matches || matches.length === 0) {
+          await this.ensureAll();
+          matches = this.byHash.get(fallbackHash);
+        }
+        if (matches && matches.length > 0) {
+          if (matches.length > 1) {
+            throw new TaskWriterError(
+              "ambiguous_slug",
+              `hash ${fallbackHash} matches ${matches.length} tasks: ${matches.map((m) => m.id).join(", ")}`,
+            );
+          }
+          return matches[0];
+        }
+      }
+
       throw new TaskWriterError(
         "not_found",
         `${parsed.path}:L${(parsed.line ?? 0) + 1} is not a task line. Use \`task-center list\` to find valid refs.`,
@@ -378,6 +421,7 @@ export class TaskCache {
     this.listeners.clear();
     this.byPath.clear();
     this.byHash.clear();
+    this.staleHashByRef.clear();
     this.pending.clear();
     this._flatCache = null;
     this.allLoaded = false;

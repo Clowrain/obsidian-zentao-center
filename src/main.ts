@@ -850,7 +850,11 @@ export default class TaskCenterPlugin extends Plugin {
     const title = requireArg(args.title, "title");
     const r = await this.api.rename(ref, title);
     const t = await this.api.show(ref);
-    return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, "renamed");
+    // US-227: pass titleOverride so the output header reflects the new title
+    // even when the cache is stale (metadataCache.changed fires asynchronously
+    // after vault.process). Without this, the header shows the old title from
+    // the pre-rename cache entry.
+    return formatOkWrite(t, null, null, r.before, r.after, r.unchanged, "renamed", undefined, title);
   }
 
   private cliQueryList(args: CliArgs): string {

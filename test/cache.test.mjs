@@ -458,6 +458,139 @@ test("VAL-CORE-003: resolveRef path:Lnnn on cold cache does not load other files
   assert.equal(cache.__stats.ensureCount, 0, "must NOT trigger ensureAll");
 });
 
+// ── VAL-CLI-004: stale path:Lnn hash recovery ──
+
+test("resolveRef — stale path:Lnn recovers by hash when unique (line shifted)", async () => {
+  const app = makeApp([
+    { path: "Tasks/t1.md", hasTask: true, metaIndexed: false, content: "- [ ] Original task\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  // Get the original task's id and hash
+  const tasks = cache.flatten();
+  assert.equal(tasks.length, 1);
+  const originalRef = tasks[0].id; // "Tasks/t1.md:L1"
+  const originalHash = tasks[0].hash;
+
+  // Simulate external edit: add a blank line above, shifting the task to line 2
+  app._setContent("Tasks/t1.md", "\n- [ ] Original task\n");
+  app._fireMetaChanged("Tasks/t1.md");
+  await cache.forFlush();
+
+  // The task is now at line 1 (0-indexed), but ref still says L1 (line 0).
+  // resolveRef should recover via stale-hash lookup.
+  const recovered = await cache.resolveRef(originalRef);
+  assert.ok(recovered, "should recover task via stale hash");
+  assert.equal(recovered.hash, originalHash);
+  assert.equal(recovered.line, 1, "recovered task should be at the new line");
+  assert.equal(recovered.id, "Tasks/t1.md:L2");
+});
+
+test("resolveRef — stale path:Lnn with hash collision returns ambiguous_slug", async () => {
+  // Two tasks with identical path+title → identical hash (hash is path::title).
+  // When the line shifts, the stale ref hash matches BOTH tasks.
+  const app = makeApp([
+    {
+      path: "Tasks/t1.md",
+      hasTask: true,
+      metaIndexed: false,
+      content: "- [ ] Dupe\n- [ ] Dupe\n",
+    },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const tasks = cache.flatten();
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks[0].hash, tasks[1].hash, "identical title+path must produce identical hash");
+
+  const staleRef = tasks[0].id; // "Tasks/t1.md:L1"
+
+  // Shift lines: add a line above
+  app._setContent("Tasks/t1.md", "# header\n- [ ] Dupe\n- [ ] Dupe\n");
+  app._fireMetaChanged("Tasks/t1.md");
+  await cache.forFlush();
+
+  // The stale ref should now throw ambiguous_slug because hash matches 2 tasks
+  await assert.rejects(
+    () => cache.resolveRef(staleRef),
+    (err) => err.code === "ambiguous_slug",
+    "stale ref with hash collision should throw ambiguous_slug",
+  );
+});
+
+test("resolveRef — stale path:Lnn with no hash match throws not_found", async () => {
+  const app = makeApp([
+    { path: "Tasks/t1.md", hasTask: true, metaIndexed: false, content: "- [ ] Will be deleted\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const tasks = cache.flatten();
+  const staleRef = tasks[0].id; // "Tasks/t1.md:L1"
+
+  // Replace with a non-task line at line 0 — the original task is gone and
+  // the new content doesn't produce a matching hash for the stale ref.
+  app._setContent("Tasks/t1.md", "Just text, not a task\n");
+  app._fireMetaChanged("Tasks/t1.md");
+  await cache.forFlush();
+
+  // The stale ref hash doesn't match any task in the updated cache
+  await assert.rejects(
+    () => cache.resolveRef(staleRef),
+    (err) => err.code === "not_found",
+    "stale ref with no hash match should throw not_found",
+  );
+});
+
+test("resolveRef — stale path:Lnn recovery works when task is deleted then re-added later in same file", async () => {
+  // A task is deleted from its original line and a matching task (same path+title)
+  // appears later in the same file. The stale hash maps to the re-added task.
+  const app = makeApp([
+    { path: "Tasks/a.md", hasTask: true, metaIndexed: false, content: "- [ ] Recurring\n\nSome text\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const tasksA = cache.get("Tasks/a.md");
+  const originalRef = tasksA.tasks[0].id; // "Tasks/a.md:L1"
+  const originalHash = tasksA.tasks[0].hash;
+
+  // Delete the original task, add same-title task at a later line
+  app._setContent("Tasks/a.md", "Some text\n\n- [ ] Recurring\n");
+  app._fireMetaChanged("Tasks/a.md");
+  await cache.forFlush();
+
+  // The original ref (Tasks/a.md:L1) is stale because line 0 is now "Some text".
+  // Hash recovery should find the task at the new position.
+  const recovered = await cache.resolveRef(originalRef);
+  assert.ok(recovered, "should recover task via stale hash");
+  assert.equal(recovered.hash, originalHash);
+  assert.equal(recovered.line, 2, "recovered task should be at the new line (0-indexed)");
+});
+
+test("resolveRef — live path:Lnn ref still resolves directly (no regression)", async () => {
+  const app = makeApp([
+    { path: "Tasks/t1.md", hasTask: true, content: "- [ ] Live task\n" },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  // Ref that still points to the right line should resolve normally.
+  const t = await cache.resolveRef("Tasks/t1.md:L1");
+  assert.ok(t, "live ref should resolve");
+  assert.equal(t.line, 0);
+  assert.equal(t.title, "Live task");
+});
+
+// ── VAL-CORE-003: rename event ──
+
 test("VAL-CORE-003: rename event remaps path without re-parsing", async () => {
   const app = makeApp([
     { path: "Tasks/old.md", hasTask: true, content: "- [ ] Old\n" },
