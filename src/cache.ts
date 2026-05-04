@@ -366,17 +366,43 @@ export class TaskCache {
           return t;
         }
         if (originalHash === t.hash) {
-          // Same-hash identity guard: when the stored hash matches the
-          // current line occupant but multiple tasks share that hash,
-          // we can't tell whether the occupant is the original task or
-          // a different same-hash task that moved into this position.
-          // Return ambiguous_slug rather than silently guessing.
+          // US-208 / VAL-CLI-004: same-hash identity guard.
+          // When the stored hash matches the current line occupant but
+          // multiple tasks share that hash, we must distinguish:
+          //
+          //   a) Non-stale: the task hasn't moved (just re-parsed).
+          //      The exact current-line task is the correct resolution.
+          //   b) Stale: a *different* same-hash task moved into this
+          //      position while the original task moved elsewhere.
+          //      We can't guess — must return ambiguous_slug.
+          //
+          // Distinguish by checking whether other staleHashByRef entries
+          // with the same hash have mismatches at their current positions.
+          // If any entry's current position no longer has a task with
+          // this hash, the task distribution changed → stale collision.
           const candidates = this.byHash.get(originalHash);
           if (candidates && candidates.length > 1) {
-            throw new TaskWriterError(
-              "ambiguous_slug",
-              `hash ${originalHash} matches ${candidates.length} tasks: ${candidates.map((m) => m.id).join(", ")}`,
-            );
+            let distributionChanged = false;
+            for (const [key, h] of this.staleHashByRef) {
+              if (h !== originalHash || key === staleRef) continue;
+              // Only check entries from the same file.
+              if (!key.startsWith(parsed.path + ":L")) continue;
+              const keyLine =
+                parseInt(key.slice(key.lastIndexOf(":L") + 2), 10) - 1;
+              const keyTask = entry.tasks.find(
+                (t2) => t2.line === keyLine,
+              );
+              if (!keyTask || keyTask.hash !== originalHash) {
+                distributionChanged = true;
+                break;
+              }
+            }
+            if (distributionChanged) {
+              throw new TaskWriterError(
+                "ambiguous_slug",
+                `hash ${originalHash} matches ${candidates.length} tasks: ${candidates.map((m) => m.id).join(", ")}`,
+              );
+            }
           }
           return t;
         }

@@ -646,6 +646,43 @@ test("resolveRef — stale path:Lnn where original task moved and different task
   assert.equal(recovered.id, "Tasks/t2.md:L2");
 });
 
+test("resolveRef — non-stale duplicate-hash same-line ref resolves exact line task", async () => {
+  // Two tasks with identical title → identical hash.
+  // When the file is re-parsed without content change (non-stale),
+  // a path:Lnn ref with duplicate-hash tasks must still resolve the
+  // exact current line task — not throw ambiguous_slug.
+  const app = makeApp([
+    {
+      path: "Tasks/t4.md",
+      hasTask: true,
+      metaIndexed: false,
+      content: "- [ ] Dupe\n- [ ] Dupe\n",
+    },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+  await cache.ensureAll();
+
+  const tasks = cache.flatten();
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks[0].hash, tasks[1].hash, "identical title+path must produce identical hash");
+
+  const refB = tasks[1].id; // "Tasks/t4.md:L2" — second Dupe
+
+  // Re-parse the same content (simulates metadata re-index without changes).
+  // This populates staleHashByRef, but the tasks haven't moved.
+  app._fireMetaChanged("Tasks/t4.md");
+  await cache.forFlush();
+
+  // The ref is non-stale: the task at L2 is still the same task.
+  // It must resolve directly even though there are duplicate-hash tasks.
+  const resolved = await cache.resolveRef(refB);
+  assert.ok(resolved, "non-stale duplicate-hash ref should resolve directly");
+  assert.equal(resolved.hash, tasks[1].hash);
+  assert.equal(resolved.line, 1, "should be at line 1 (0-indexed), the same position");
+  assert.equal(resolved.id, "Tasks/t4.md:L2");
+});
+
 test("resolveRef — same-hash old-line occupant collision returns ambiguous_slug", async () => {
   // Two tasks with identical title → identical hash.
   // When the file content is rearranged so that a DIFFERENT same-hash task
