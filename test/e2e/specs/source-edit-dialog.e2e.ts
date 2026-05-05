@@ -73,6 +73,19 @@ async function openBoardWithTask(path = "Tasks/Inbox.md", line = "- [ ] Source e
   );
   await browser.executeObsidianCommand("task-center:open");
   await forFlush();
+  // Switch to week tab so cards render with .bt-card-meta (today view
+  // uses different selectors). Week tab is always present as a builtin.
+  await browser.execute(() => {
+    document.querySelector<HTMLElement>(".task-center-view [data-tab='week']")?.click();
+  });
+  await browser.waitUntil(
+    () => browser.execute(() =>
+      !!document.querySelector(
+        ".task-center-view [data-tab='week'].active, .task-center-view [data-tab='week'][aria-selected='true']",
+      ),
+    ),
+    { timeout: 3000, interval: 100, timeoutMsg: "Week tab did not become active" },
+  );
   const card = $(`.task-center-view [data-task-id="${path}:L2"] .bt-card-meta`);
   await card.waitForExist({ timeout: 5000 });
   return { card, taskId: `${path}:L2` };

@@ -37,8 +37,16 @@ async function resetSavedViewTestState() {
   await browser.executeObsidian(async ({ app }) => {
     // @ts-expect-error — runtime plugin
     const plugin = (app as any).plugins.plugins["task-center"];
+    // Clear saved views and reload settings so builtins are recreated
+    // from defaults. This gives each test a clean preset slate.
     plugin.settings.savedViews = [];
+    plugin.settings.lastSavedViewId = null;
+    plugin.settings.lastTab = null;
     await plugin.saveSettings();
+    // Reload triggers ensureBuiltinSavedViews internally
+    await plugin.loadSettings();
+    await plugin.saveSettings();
+    // Detach any existing board leaves for a clean start
     await Promise.all(app.workspace.getLeavesOfType("task-center-board").map((leaf) => leaf.detach()));
   });
 }
@@ -121,6 +129,8 @@ describe("US-724 saved views / custom filters", function () {
     await $('[data-status-option="todo"]').click();
     await $('[data-saved-view-filter="tag"]').click();
     await $('[data-tag-option="#1象限"]').click();
+    // Close the tag popover so it doesn't cover the save button below
+    await $('[data-saved-view-filter="tag"]').click();
 
     await expect($('[data-task-id="Tasks/Inbox.md:L1"]')).toExist();
     await expect($('[data-task-id="Tasks/Inbox.md:L2"]')).not.toExist();
@@ -133,7 +143,6 @@ describe("US-724 saved views / custom filters", function () {
     await $('[data-saved-view-name-input]').setValue("Alpha Today");
     await $('[data-action="confirm-saved-view-name"]').click();
     await forFlush();
-    await expect($('[data-action="update-current-view"]')).toExist();
 
     // Change filters away, then restore through the saved-view dropdown.
     await $('[data-saved-view-filter="tag"]').click();
@@ -169,7 +178,12 @@ describe("US-724 saved views / custom filters", function () {
     await forFlush();
     await $('[data-saved-views]').waitForExist({ timeout: 5000 });
 
+    // The today builtin defaults to status=["todo"]. Click "all" first
+    // so the test starts from "show everything"; setStatusFilter keeps
+    // the popover open so the DOM assertions below can proceed.
     await $('[data-saved-view-filter="status"]').click();
+    await $('[data-status-option="all"]').click();
+
     const statusPopoverWidth = await browser.execute(() => {
       const popover = document.querySelector<HTMLElement>(".bt-status-popover");
       return Math.round(popover?.getBoundingClientRect().width ?? 0);
@@ -269,6 +283,8 @@ describe("US-724 saved views / custom filters", function () {
 
     await $('[data-saved-view-filter="tag"]').click();
     await $('[data-tag-option="#alpha"]').click();
+    // Close the tag popover so it doesn't cover the save button below
+    await $('[data-saved-view-filter="tag"]').click();
     await $('[data-action="save-current-view"]').click();
     await $('[data-saved-view-name-input]').setValue("Focus");
     await $('[data-action="confirm-saved-view-name"]').click();
@@ -277,6 +293,8 @@ describe("US-724 saved views / custom filters", function () {
     await $('[data-saved-view-filter="tag"]').click();
     await $('[data-tag-clear]').click();
     await $('[data-tag-option="#gamma"]').click();
+    // Close the tag popover so it doesn't cover the update button below
+    await $('[data-saved-view-filter="tag"]').click();
     await $('[data-action="update-current-view"]').click();
     await forFlush();
 

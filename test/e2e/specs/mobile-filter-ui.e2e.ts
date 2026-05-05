@@ -24,10 +24,6 @@ async function forFlush() {
 
 async function resetSavedViewTestState() {
   await browser.executeObsidian(async ({ app }) => {
-    // @ts-expect-error — runtime plugin
-    const plugin = (app as any).plugins.plugins["task-center"];
-    plugin.settings.savedViews = [];
-    await plugin.saveSettings();
     await Promise.all(app.workspace.getLeavesOfType("task-center-board").map((leaf) => leaf.detach()));
   });
 }

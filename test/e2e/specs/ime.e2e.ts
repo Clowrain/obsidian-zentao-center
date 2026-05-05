@@ -80,6 +80,20 @@ describe("Task Center — IME composition guard (US-413)", function () {
     await browser.executeObsidianCommand("task-center:open");
     await forFlush();
 
+    // Switch to week tab so the card renders with .bt-card-title and
+    // .bt-card-meta selectors (today view uses different classes).
+    await browser.execute(() => {
+      document.querySelector<HTMLElement>(".task-center-view [data-tab='week']")?.click();
+    });
+    await browser.waitUntil(
+      () => browser.execute(() =>
+        !!document.querySelector(
+          ".task-center-view [data-tab='week'].active, .task-center-view [data-tab='week'][aria-selected='true']",
+        ),
+      ),
+      { timeout: 3000, interval: 100, timeoutMsg: "Week tab did not become active" },
+    );
+
     const cardSel = `.task-center-view [data-task-id="Tasks/Inbox.md:L1"]`;
     await $(cardSel).waitForExist({ timeout: 5000 });
 

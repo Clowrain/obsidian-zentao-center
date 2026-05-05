@@ -1,315 +1,382 @@
 # UX — Mobile
 
-> **这份文档是 [UX.md](./UX.md) 的 Δ（delta），不是替代**。共享原则、卡片结构、5 个 tab 的语义、CLI 输出形态、i18n 边界、可达性硬约束等等**全部沿用 UX.md**。这里只写**移动端要变 / 要新加 / 要去掉**的部分。
+> 本文是 [UX.md](./UX.md) 的移动端 delta，只写移动端不同或需要额外约束的部分。
 >
-> 看完 UX.md 再读这份。设计决策每条都尽量回引 `US-xxx`；移动端故事编号见 `USER_STORIES.md` 的 `US-501~510`。
->
-> 适用平台：**Obsidian Mobile（iOS / iPadOS / Android）**。Linux desktop / macOS / Windows 桌面 → 看 UX.md。
+> 移动端仍以 [USER_STORIES.md](./USER_STORIES.md) 为需求来源；共享对象模型、Query DSL、Task Card 语义、父子继承、CLI 桌面语义、i18n 边界全部沿用 UX.md。
 
----
+## 0. 移动端原则
 
-## 0. 移动端的设计原则（在 UX.md §0 之上加 3 条）
+1. **触屏不是缩水版鼠标**：移动端没有 hover、右键、拖拽、drop target、跨 tab dwell、键盘快捷键；同一语义走 tap、swipe、long-press、bottom sheet。（US-501 / US-507）
+2. **首屏只保留高频对象**：当前 Query Tab、状态摘要、编辑 Query、Quick Add、当前 view 内容；搜索、标签、排期、更多时间、状态、view、summary 配置统一进“编辑 Query”bottom sheet。（US-117）
+3. **可触达优先**：常用动作放在屏幕下半区或 bottom sheet 内；触控目标高度不低于 44px。（US-502）
+4. **软键盘是布局约束**：Quick Add 与源 Markdown 编辑层必须避让软键盘，不遮挡提交、关闭、输入区域。（US-168g / US-509）
+5. **平台文案分支**：移动端不显示 `Ctrl`、右键、拖拽、hover 等桌面提示。（US-510）
 
-7. **触屏不是缩水版鼠标**。move = 滚动 / swipe，tap = 点击，long-press = hover & right-click 的合体。**移动端不提供任务 drag/drop**：不要硬把桌面交互"缩小"塞到手机上,而是重新想"在 5 寸玻璃上做这件事最自然的姿势是什么"。
-8. **大拇指可达**。所有常用动作（add、切 tab、完成、放弃）都要能在屏幕**下半部分**单手操作。
-9. **键盘是软键盘**。文本输入唯一会触发软键盘（Quick Add 唤起）；其余路径都要在没物理键盘的前提下 100% 可走通。所有 `Ctrl+1` `D` `/` 等桌面快捷键移动端**不存在**——必须有等价的视觉 / 手势入口。
+## 1. 移动端表面
 
----
-
-## 1. 表面（Surfaces）— 移动端的差异
-
-| Surface | 移动端形态 | vs 桌面 |
+| Surface | 移动端形态 | 说明 |
 | --- | --- | --- |
-| **Task Center 主视图** | 全屏 leaf；底部 sticky 操作条（未排期入口 + Quick Add 按钮） | 桌面是 tab 内一个 leaf；移动端通常占满整个屏幕 |
-| **状态栏小部件** | **不存在**——Obsidian Mobile 没暴露稳定的状态栏槽位 | 桌面 `📋 N today · ⚠ M overdue` 信息**嵌进 board header**（见 §3.4），不再做独立小部件 |
-| **Quick Add** | 底部 sheet（半屏弹起），自动避让软键盘 | 桌面是顶部一行 input |
-| **Obsidian CLI 动词** | **完全不存在**——Obsidian Mobile 不支持 native CLI（v1.12.x 仍仅桌面） | 桌面才有；AI agent 路径**仅桌面** |
+| Task Center 主视图 | 全屏 WorkspaceLeaf | Obsidian Mobile 内占满当前 leaf |
+| Header 状态 | 嵌入主视图 header | 替代桌面状态栏，显示 `📋 N today · ⚠ M overdue`（US-106） |
+| Query Tab Strip | 横向滚动 tab 条 + 更多 | tab 是 QueryPreset，不是固定页面名（US-109g / US-109q） |
+| Query 编辑 | bottom sheet | 入口必须叫“编辑 Query”或等价对象名（US-109p4 / US-117） |
+| Quick Add | bottom sheet | 唯一新增主路径；写入 Daily Note（US-169 / US-509） |
+| 卡片动作 | long-press action sheet / swipe | 替代右键、hover、拖拽（US-506~508） |
+| CLI | 不在移动端露出 | Obsidian Mobile 不支持 CLI；AI skill 指引只在设置页作为帮助信息（US-501 / US-215） |
 
-**移动端 out-of-scope**（与 UX.md §15 一致 + 加这些）：
+移动端不渲染桌面放弃 drop zone，不渲染拖拽目标，不提供跨 tab dwell 进度。
 
-- 无 CLI（mobile 平台限制）→ AI agent 流程不在移动端运行
-- 无 hover popover（US-168 已删除 hover 入口）→ 单击卡片打开源 Markdown 编辑层，long-press 只承载动作菜单
-- 无任务 drag/drop（含 drop target、放弃拖入区、跨 tab dwell）→ 改期 / 放弃 / 嵌套全部用显式动作入口
-- 无键盘快捷键 → 用手势 / 按钮替代
-- 无右键菜单 → long-press 替代
-- 无 status bar 小部件 → 信息嵌 board header
+## 2. 主界面布局
 
-> `US-501`：移动端不支持的桌面功能（CLI、键盘快捷键、拖拽 / drop target / dwell 等）静默 no-op，不弹错误 / 警告；hover popover 不再作为任何端的功能存在。
-
----
-
-## 2. 信息架构（IA）— 移动端布局
-
-```
-┌────────────────────────────────────────┐
-│  [今日][周][月][已完成][未排期] 🔎 ⚙ │  ← 顶部 tab 条（横向滚动）+ 筛选 / 设置
-├────────────────────────────────────────┤
-│  📋 3 today · ⚠ 1 overdue              │  ← Header 嵌入 status 信息（替代桌面 status bar）
-├────────────────────────────────────────┤
-│                                        │
-│       [当前 tab 主区]                   │
-│                                        │
-│       (周/月/已完成/未排期)             │
-│                                        │
-│                                        │
-│                                        │
-├────────────────────────────────────────┤
-│       未排期池                          │  ← 仅周/月 tab 显示，点手柄展开
-│       [卡] [卡] [卡] ...               │
-├────────────────────────────────────────┤
-│   未排期          ➕ Add               │  ← Bottom action bar (sticky)
-└────────────────────────────────────────┘
-```
-
-- **顶部 tab 条**：5 个 tab + 设置入口。手机宽度不足时可横向滚动（不要折成两行）。每 tab 仍带未读小圆点（US-105），但不显示快捷键提示（移动端无键盘）。
-- **Header status row**：替代桌面状态栏，永远显示 `📋 N today · ⚠ M overdue`，与桌面 US-106 等价。点击无效（已经在看板内）。
-- **未排期池**：默认折叠到屏幕下方，点手柄 / bottom action bar 的“未排期”按钮展开或收起。展开时占屏幕下半部 ~40%。
-- **未排期池宽度**：展开后的未排期区必须吃满移动端主内容可用宽度，与上方当前 tab 主区共用左右边界；不做桌面式多列瀑布流，也不允许缩成比上方内容更窄的内嵌小块。
-- **Bottom action bar**：`未排期` 切换按钮 + `➕ Add` 按钮（唤起 Quick Add bottom sheet）。两侧可达；放弃不做拖入目标,走右滑或动作 sheet；可见 UI 不使用垃圾桶 / 删除图标。
-
-**横竖屏适配**（US-502）：
-- 竖屏：上述布局
-- 横屏（iPad / 大屏手机）：可考虑回到 7 列周视图——以**屏幕宽度 ≥ 600px** 作为分界（CSS `@media (min-width: 600px)`）；< 600px 走移动端布局，≥ 600px 走桌面布局。**判断条件用 CSS 不用 UA**（避免 user-agent 漂移）。
-
----
-
-## 3. 各 Tab 的移动端规格
-
-### 3.1 周视图（移动端默认）
-
-移动端 week 是桌面 7 列 week 的同语义改排版：7 行 = 7 天，每行一个折叠面板，row header = `星期 MM-DD · N tasks · XhYm`。当前日默认展开，其余默认折叠（US-503）。
-
-**列序**：跟设置（周一为首 / 周日为首，US-112）。共 7 行。
-**今日 row**：背景 = `--background-secondary-alt`，row header 加 `今天` 小标签。
-**翻周**：顶部增加 `< 今 >` 按钮组（< 上一周 / 今天 / 下一周 >）；不依赖键盘。
-**交互**：row header 点击展开 / 收起；row body 只承载滚动与卡片列表,不是 drop zone。任务改期从卡片动作 sheet 进入日期选择器（US-507）。
-
-### 3.2 月视图
-
-保留 6×7 日历，但每格简化：
-
-- 数字（日期）+ 一个**任务数小圆点**（无任务则不显）
-- 当日格高亮
-- **不显**任何卡片缩略（手机格子太小放不下）
-- 点格 = 弹一个该日 list（半屏 bottom sheet 显示该日所有任务）
-- 日期格不是 drop target；该日 list 内的卡片改期仍从卡片动作 sheet 进入日期选择器。
-
-### 3.3 已完成视图
-
-桌面已有的"按周分组、本周展开、历史折叠"（US-304）在移动端逻辑不变。**只有视觉变化**：
-
-- 每周组顶 stat（`准确率 / top tag 时长`）从一行变成两行（手机宽度不够）
-- 卡片用紧凑模式（见 §4）
-
-### 3.4 未排期视图
-
-移动端未排期视图单列展示，卡片宽度接近 100%，只保留安全边距和设计间距。排序仍按 US-104：先 deadline，再按加入时间；tag 不参与内置分组，用户通过筛选 / 保存视图看特定集合。
-
-- **满宽约束**：未排期区无论是作为独立 tab 主区，还是作为周 / 月 tab 下方展开区，都必须与当前移动端主内容同宽；容器、列、卡片都按单列满宽心智组织，不保留桌面端的多列 column-width/masonry 视觉。
-
----
-
-## 4. 卡片（Card）— 紧凑模式
-
-桌面卡（UX.md §5.1）在手机上要瘦身：
-
-```
-┌────────────────────────────────────────┐
-│ [✓] 任务标题                  ⏳ 04-25  │  ← 行 1（始终显示）
-│ #2象限 · 90m / 75m            📅 05-15  │  ← 行 2（meta + tags 合并到一行，省略号）
-│   ├ [ ] 子任务（仅显 1 层）   ⏳ 04-26  │  ← 行 3+（subtask，仅 1 层；超 1 层显 "+N"）
-└────────────────────────────────────────┘
-```
-
-**与桌面的差异**：
-- **meta + tag 合并到一行**（桌面是分两行）。空间不够时按 `tag → 用户配置的时长字段 → 📅` 顺序保留，超出截断 + `…`。
-- **子任务只显 1 层**（桌面是递归全显，UX.md §5.3 / US-142）；> 1 层时在父行末显 `+N` 提示，点开弹半屏 bottom sheet 显完整树（保持 US-142 的"递归显示"语义，只是默认折叠到 1 层视觉减负）
-- **卡间距**减到 6px（桌面 8px），padding 减到 8/10（桌面 12/16）
-- **不显 hover popover**——hover 不存在，long-press 替代（见 §5）
-
-**状态机视觉差异**：
-- overdue / near-deadline 仍用左侧 3px 红 / 黄条（US-115）— 在窄屏上比 badge 更易扫
-- 不提供拖动状态,也不显示 grab / dragging 暗示。按压反馈只用于 tap / long-press / swipe,避免用户误以为卡片可拖。
-
-> `US-505`：移动端卡片紧凑模式——meta 行合并 / 子任务默认显 1 层；卡片不是 draggable；未排期区域与卡片宽度占满可用宽度。
-
----
-
-## 5. 交互 — 触屏专用
-
-### 5.1 Long-press（长按）= 移动端动作菜单
-
-按住卡片 ≥ 500ms 且未发生滚动 / swipe 判定时,弹半屏 bottom sheet，内容 = 桌面右键菜单（UX.md §5.5）的移动版本。源文件查看/编辑不在长按菜单里重复出现，统一由单击卡片打开 US-168 源 Markdown 编辑层：
-
-```
+```text
 ┌──────────────────────────────────────┐
-│  切换完成                              │
-│  ──                                   │
-│  改期... / 今天 / 明天 / 清空 ⏳        │
-│  ──                                   │
-│  设为子任务...                         │
-│  ──                                   │
-│  编辑标签                              │
-│  ──                                   │
-│  放弃                                 │
+│ Task Center        📋 3 · ⚠ 1        │  Header
+├──────────────────────────────────────┤
+│ [今日][本周][本月][TODO][更多]       │  Query Tab Strip
+├──────────────────────────────────────┤
+│ 当前 Query 摘要        [编辑 Query]  │  Query Toolbar
+├──────────────────────────────────────┤
+│ count / sum / ratio / top-N          │  Summary Area（按需出现）
+├──────────────────────────────────────┤
+│                                      │
+│ 当前 view body                       │
+│ list / week / month / matrix         │
+│                                      │
+├──────────────────────────────────────┤
+│                          [+]         │  Quick Add FAB / bottom button
 └──────────────────────────────────────┘
 ```
 
-- **延时 500ms**
-- 外部点 / 下滑关闭
-- 手指移动优先交给滚动 / swipe；long-press 取消。移动端**绝不**从 long-press 进入 drag mode。
+规则：
 
-> `US-506`：长按卡片 ≥ 500ms（且未发生滚动手势）弹移动端操作 sheet；移动端不进入 drag mode。
+- Tab 条横向滚动；过多 tab 收进“更多”，仍是完整 Query Tab，不降级为菜单项。（US-109q）
+- Tab badge 显示实际渲染顶层卡数；不显示桌面快捷键编号。（US-105 / US-510）
+- Header 嵌入 `📋 N today · ⚠ M overdue`；点击不需要再“打开看板”，因为用户已经在看板内。（US-106）
+- Toolbar 首屏只放当前 Query 摘要与“编辑 Query”；不把搜索、标签、排期、状态按钮铺满首屏。（US-117）
+- Quick Add 入口可为右下 FAB 或底部按钮，但不能与系统 Home indicator / Obsidian 底栏冲突。
+- 屏幕 `< 600px` 使用移动布局；`≥ 600px` 使用桌面布局；用户可强制保持移动布局。（US-502）
 
-### 5.2 无拖拽：显式动作替代
+## 3. Query Tab 移动端管理
 
-- **改期**：动作 sheet 点“改期...”打开日期选择器。顶部提供今天 / 明天 / 本周常用项,下面是月历；支持清空 `⏳`。确认后写入同 US-121 的字节级语义。
-- **放弃**：右滑卡片或动作 sheet 点“放弃”。结果同 US-123 / US-124：不删除文件,只改 checkbox 字符 + 加 `❌ YYYY-MM-DD` 戳,父任务未完成子任务级联。
-- **嵌套**：动作 sheet 点“设为子任务...”打开可搜索父任务选择器。选择父任务后执行同 US-125 / US-228 的物理移动：跨文件移动行、按层级缩进、清空被移动任务自己的 `⏳`、toast + undo。
-- **非法父任务**：自己 / 后代在选择器中 disabled,说明“不能设为自己的子任务”。这等价桌面 US-126,但不依赖 drop target 红框。
-- **跨 tab**：没有拖拽 dwell。需要把未排期任务安排到某天时,从未排期卡片动作 sheet 直接选择日期；不先切 tab 再拖。
+### 3.1 切换与更多
 
-> `US-507`：移动端不提供任务拖拽；桌面 drag 语义必须有触屏显式等价路径。
+- 横向滑动 tab strip 切换可见 tab。
+- “更多”打开 bottom sheet，列出溢出的 Query Tab；排序、badge、默认 tab、隐藏状态与桌面一致。（US-109q）
+- 不显示 `Ctrl/Cmd+1~9` 提示。（US-510）
 
-### 5.3 滑动手势（移动端独有）
+### 3.2 Tab 菜单
 
-- **左滑卡片** → 标完成（等价 `Space` 切完成）。手势确认窗口：露出绿底"完成"提示 + 1 秒撤销（toast + undo）。
-- **右滑卡片** → 放弃（等价 US-123 的放弃语义,但不是拖入目标）。手势确认窗口：露出红底"放弃"提示 + 1 秒撤销。
-- 滑动距离阈值 ≥ 30% 卡宽，松手回弹 OR 触发；< 30% 取消。
-- **不**做 "swipe-to-delete"（语义不一致，会和"放弃"打架）。
+长按 tab 或点击 tab 更多按钮打开 bottom sheet，包含：重命名、复制、编辑 Query、设为默认、左移、右移、隐藏、删除。（US-109n / US-109o）
 
-> `US-508`：左滑 = 完成、右滑 = 放弃；阈值 30% 卡宽，1 秒 toast undo。
+- 重命名在 bottom sheet 中编辑；Enter 保存时必须守卫 IME composition。（US-413）
+- 删除自定义 tab 前提示“只删除这个视图，不删除任何任务”，并提供 toast undo。（US-109r）
+- 预设 tab 不能永久删除，只能隐藏；恢复预设在设置页。（US-109l）
 
-### 5.4 Quick Add（Bottom sheet）
+### 3.3 未保存改动
 
-- `➕ Add` 按钮（bottom action bar 右）唤起半屏 sheet，从底部弹起
-- sheet 内 = 一行 input（与桌面 UX.md §6.6 同），软键盘自动出现
-- **键盘避让**：sheet 高度 = 屏幕剩余高度；软键盘弹出时 sheet 上移到键盘上方 + 8px 间距
-- 自然语言日期解析照旧（中英两套，US-410）
-- 唯一写入位置仍是当日 daily（US-163）
+移动端用 tab label 的 dirty 标记 + Query toolbar 提示表达未保存改动。编辑 Query sheet 底部固定动作：
 
-> `US-509`：Quick Add 在移动端是 bottom sheet，软键盘弹出时自动避让，sheet 上移到键盘上方 + 8px。
+- 更新当前 tab。
+- 另存为新 tab。
+- 丢弃改动。
 
-### 5.5 不存在 / 静默替代
+不提供单独“保存为 tab”；首次保存和复制保存都使用“另存为新 tab”。（US-109c1）
 
-| 桌面交互 | 移动端 |
+## 4. 编辑 Query Bottom Sheet
+
+入口名固定为“编辑 Query / 编辑当前 Tab”，不能叫“筛选”或“视图”。（US-109p4 / US-109p5）
+
+Sheet 结构：
+
+```text
+编辑 Query
+├─ Filters
+│  ├─ 搜索
+│  ├─ 标签
+│  ├─ 排期
+│  ├─ 更多时间
+│  └─ 状态
+├─ View
+│  ├─ list / week / month / matrix
+│  ├─ sections / tray / axis / bucket / sort
+│  └─ 空 bucket / 未分组设置
+├─ Summary
+│  ├─ count / sum / ratio / top-N / group-by
+│  └─ 字段选择
+└─ DSL
+   ├─ 直编
+   ├─ 校验错误
+   └─ 回退
+```
+
+移动端交互：
+
+- Sheet 默认高度约 80% 视口，可拖到全高；内容内部滚动。
+- Filters 用分组列表进入二级 sheet，避免首层过长。
+- 标签仍是搜索 + 自绘 checkbox 列表，不使用原生 `<select multiple>`。（US-109d）
+- 排期 / 更多时间使用移动日历范围选择器；`unscheduled` 仍是 `scheduled is empty`，不是范围。（US-109e）
+- 状态 popover 在移动端表现为 checkbox 列表 sheet，支持多选并立即预览。（US-109h）
+- DSL 校验失败时在 DSL 区域内展示错误，不覆盖 saved query。（US-109p3）
+
+## 5. 移动端 View 规格
+
+### 5.1 List View
+
+List 移动端为单列满宽卡片列表。Sections 以折叠标题或 sticky 小标题呈现，取决于 section 数量和高度。（US-103）
+
+适用：今日、TODO、未排期、已完成、已放弃、搜索结果、自定义 tab。
+
+- 今日预设仍是 list + 三个 section：逾期 / 今日安排 / 未排期推荐。（US-720）
+- “改到明天”是卡片动作按钮或 action sheet 项，写入 `⏳ <tomorrow>`。（US-720c）
+- 三组均空时空状态视觉居中，不贴顶。（US-720d / US-720e）
+
+### 5.2 Week View
+
+Week 移动端是 7 行折叠面板，不是 7 列。（US-503）
+
+```text
+今天 05-04 · 3 tasks · 2h30m   [展开]
+  Task Card
+周二 05-05 · 1 task · 25m       [折叠]
+...
+```
+
+规则：
+
+- 当前日默认展开，其它日期默认折叠。
+- Row 顺序遵循周一 / 周日起始日设置。（US-112）
+- Row header 显示 `星期 MM-DD · N tasks · XhYm`。（US-116）
+- Row body 不是 drop zone；改期走 action sheet → 日期选择器。（US-507）
+- 上一周 / 今天 / 下一周用可点击按钮，不依赖键盘。
+
+如果 Query view 开启未排期 tray，移动端在 week rows 下方显示可折叠“未排期”区：
+
+- 数据来源是 tray query。
+- 卡片单列满宽。
+- 安排到某天通过卡片 action sheet 选择日期。
+- 清空排期通过 action sheet；若有效排期来自父级继承，提示编辑源 Markdown 或先移出父级。（US-122a）
+
+### 5.3 Month View
+
+Month 移动端显示“月历 + 日期数字 + 任务数圆点”。（US-504）
+
+- 日期格不渲染完整卡片。
+- 点击日期格打开该日任务 list bottom sheet。
+- 该日 sheet 中卡片仍使用通用移动卡片和 action sheet。
+- 日期格不是 drop target。
+- 上月 / 今天 / 下月用可点击按钮。
+
+如果 Query view 开启未排期 tray，tray 位于月历下方，行为同 Week。
+
+### 5.4 Matrix View
+
+Matrix 移动端不强塞二维大表。默认展示为按行轴分组的纵向 bucket 列表：
+
+```text
+纵轴 Bucket A
+  横轴 Bucket 1
+    Task Card
+  横轴 Bucket 2
+    Empty / Task Card
+纵轴 Bucket B
+...
+未分组
+```
+
+规则：
+
+- 保留 axis / bucket 语义和用户命名。（US-103a）
+- 每个 bucket 可折叠。
+- 未分组区可折叠。
+- 允许用户切换“紧凑矩阵预览”，但默认必须可读、可触达。
+
+## 6. 移动端 Task Card
+
+移动端卡片紧凑显示。（US-505）
+
+```text
+┌────────────────────────────────────┐
+│ [ ] 任务标题              ⏳ 05-05 │
+│ #tag · 90m/75m · 📅 05-10          │
+│   [ ] 子任务（只显 1 层）           │
+│   +3 更多子任务                    │
+└────────────────────────────────────┘
+```
+
+差异：
+
+- meta 与 tag 合并为一行；空间不足按 tag、用户配置时长字段、deadline 风险顺序保留，其余截断。
+- 子任务默认只显示 1 层；更多层级用 `+N` 打开完整子树 bottom sheet。
+- 单击卡片 / 子任务行打开源 Markdown 编辑层并定位对应任务。（US-168 / US-142a）
+- 长按卡片打开动作 sheet，不进入 drag mode。（US-506）
+- 卡片不是 draggable，不显示 grab / drop target 视觉。（US-501 / US-505）
+- overdue / near-deadline 仍有左侧风险条，并配文字 / badge 辅助，不只依赖颜色。（US-115）
+
+## 7. 源 Markdown 编辑层
+
+移动端单击卡片打开源 Markdown 编辑层；长按不重复提供“打开源文件”。（US-168 / US-506）
+
+移动端额外约束：
+
+- 默认不遮蔽整个任务中心超过必要范围；可用 bottom sheet / panel 形态。
+- 内容区可滚动，高度有上限。
+- 软键盘弹出时，输入行、关闭按钮、保存状态不可被遮挡。
+- Esc 不可用时必须提供可触达关闭按钮和遮罩关闭。
+- “在原文中打开/定位”作为显式次级入口保留。（US-168h）
+
+## 8. 移动端动作 Sheet
+
+### 8.1 长按菜单
+
+长按卡片 ≥ 500ms 且未滚动时弹 action sheet。（US-506）
+
+```text
+切完成
+安排到今天
+安排到明天
+改期...
+清空排期
+设为子任务...
+编辑 tag
+放弃
+```
+
+- 外部点击 / 下滑关闭。
+- 手指移动超过滚动 / swipe 阈值时取消 long-press。
+- 菜单不包含桌面专属说明。
+
+### 8.2 改期
+
+`改期...` 打开日期选择器：
+
+- 快捷项：今天、明天、本周、下周、本月。
+- 月历选择单日或范围；卡片改期写入单日 `⏳`。
+- 清空排期只清空该任务自己行的 `⏳`。
+- 有父级继承排期且自身无 `⏳` 时，清空动作 disabled，并解释原因。（US-122a）
+
+### 8.3 嵌套
+
+`设为子任务...` 打开父任务选择器：
+
+- 搜索标题。
+- 显示候选任务路径 / 简短上下文。
+- 自己和后代 disabled，并解释“不能设为自己的子任务”。（US-126）
+- 确认后调用与桌面 / CLI 相同嵌套语义：跨文件移动、清空被移动 root 自己 `⏳`、保留子孙字段、toast undo。（US-125 / US-228）
+
+### 8.4 Swipe
+
+- 左滑卡片 = 完成。
+- 右滑卡片 = 放弃。
+- 阈值 30% 卡宽。
+- 触发后 1 秒 toast undo。（US-508）
+- 不做 swipe-to-delete。
+
+## 9. Quick Add Bottom Sheet
+
+Quick Add 是移动端唯一新增入口。（US-169 / US-509）
+
+结构：
+
+```text
+[单行 input                                      → ⏳ 05-05]
+[Today] [Tomorrow] [周六] [下周] [#recent]
+↵ Daily/2026-05-04.md
+```
+
+要求：
+
+- 打开 sheet 后 input 聚焦，软键盘出现。
+- 使用 `visualViewport` 或等价能力避让软键盘。
+- 失败时不清空输入。
+- 提交成功后保持 sheet 打开，可继续添加下一条。
+- Daily Notes 不可用时阻止提交并显示可操作提示，不写 fallback。（US-701）
+- 自然语言日期支持中英；无法识别时保持未排期，不猜。（US-410）
+
+## 10. 设置页移动端差异
+
+设置项沿用 UX.md，只强调：
+
+- “强制移动布局”是移动端 / 大屏分屏可用的布局偏好；默认关。（US-502）
+- AI skill 安装指引可以显示在设置页，但不能在移动端制造不可用 CLI 按钮或暗示可执行。（US-215 / US-501）
+- Query Tab 日常 CRUD 不在设置页，仍在主界面 tab 菜单 / Query 编辑器完成。（US-109n2）
+
+## 11. 空状态、错误态、加载态
+
+- 全 vault 无任务：空状态按钮打开 Quick Add bottom sheet。（US-113）
+- 当前 Query 无结果：解释当前条件，并提供“编辑 Query / 清空筛选”。（US-109b）
+- 未排期 + week/month 日期区为空：解释未排期任务没有 `⏳`，不会落入日期 row / 日期格；可提示打开 tray 或切 list。（US-104）
+- 加载骨架：week 显示 7 个 row skeleton；month 显示月历 skeleton；list 显示卡片 skeleton。
+- 错误 toast 从底部出现，但必须避让 Quick Add 按钮、bottom sheet、系统安全区。
+
+## 12. i18n 与文案
+
+移动端沿用 UX.md 的 i18n 规则，并额外要求：（US-510）
+
+- 不显示桌面快捷键、鼠标、右键、拖拽、hover 文案。
+- 同一动作按平台渲染不同提示，例如桌面“右键卡片”，移动端“长按卡片”。
+- 用户 tag、inline field、emoji、标题字面不翻译。
+
+## 13. 性能与手势约束
+
+移动端性能预算：
+
+| 场景 | 预算 |
 | --- | --- |
-| `Ctrl+1~4` 切 tab | 直接点 tab（顶部条） |
-| `/` 聚焦筛选 | 顶部 🔎 按钮唤起 search overlay |
-| `⌘/Ctrl+T` Quick Add | 底部 ➕ 按钮 |
-| `⌘/Ctrl+Z` Undo | toast 内的 "撤销" 按钮（per-action） |
-| `←/→` 改 ⏳ ±1 天 | long-press menu → 安排到 今天/明天/清空 |
-| `Space` 切完成 | 左滑 OR long-press menu → 切换完成 |
-| `E/Enter` 打开源 | 单击卡片 → 当前页源 Markdown 编辑层 |
-| `Delete/Backspace` 放弃 | 右滑 OR long-press menu → 放弃 |
-| 鼠标悬停 popover | 不存在；单击卡片打开源 Markdown 编辑层 |
-| 鼠标右键菜单 | long-press menu |
-| 拖拽自动切 tab dwell 600ms | 不存在；改期 / 嵌套走动作 sheet |
-| 卡 `+ 子任务` 按钮（hover 出现） | 不存在；通过源 Markdown 编辑层在原文里新增子任务 |
+| 首次打开看板 | 目标 ≤ 2.5s，超时显示骨架 / 进度 |
+| 搜索输入 | debounce ≥100ms |
+| action sheet 确认后视觉反馈 | ≤150ms |
+| swipe 判定 | ≤50ms |
+| 未打开看板 | 不触发全量扫描，插件感觉不存在 |
 
----
+实现约束：
 
-## 6. 父子任务 — 显示规则
+- 使用 CSS media query 和设置项决定布局，不用 user agent 猜测。
+- 手势使用 PointerEvent 统一管理 tap / long-press / swipe / scroll 仲裁。
+- long-press 与 swipe 互斥；发生滚动即取消 long-press。
+- 卡片使用 `touch-action: pan-y`。
+- 滚动容器使用 `overscroll-behavior: contain`。
+- bottom sheet 软键盘避让使用 `visualViewport.height` 或平台可靠等价能力。
+- reduced motion 下动画降到 ≤50ms，但保留状态变化。
 
-UX.md §7 全部规则**保留**（继承、合并、终态级联），仅显示层差异：
+## 14. 移动端验收 Checklist
 
-- **递归层数默认仅显 1 层**（vs 桌面递归全显）；超过显 `+N`，点开弹 bottom sheet 显全树（保持 US-142 语义不破坏，只是视觉默认压缩）
-- subtask `⏳` badge 规则同 UX.md §5.3（与父不同显示，相同隐藏，US-149）
+### 布局
 
----
+- [ ] `< 600px` 走移动布局；`≥ 600px` 走桌面布局；设置可强制移动布局。（US-502）
+- [ ] Header 显示 `📋 N today · ⚠ M overdue`。（US-106）
+- [ ] Tab strip 横向滚动，更多 tab 在“更多”sheet 中仍保留 badge / 排序 / 默认语义。（US-109q）
+- [ ] 首屏只有“编辑 Query”，没有铺满搜索 / 标签 / 排期 / 状态按钮。（US-117）
 
-## 7. 设置面板（移动端）
+### Query / Tab
 
-- 用 Obsidian 自带的 mobile settings UI（iOS / Android 各自风格）
-- 设置项**不变**，沿用 UX.md §9 全部，只增加 USER_STORIES 明确支撑的移动端设置：
+- [ ] Tab 长按菜单支持重命名、复制、编辑 Query、设默认、移动、隐藏、删除自定义 tab。（US-109n）
+- [ ] 编辑 Query sheet 支持 Filters / View / Summary / DSL，并能校验回显。（US-109p）
+- [ ] 未保存改动可更新当前 tab、另存为新 tab、丢弃；没有单独“保存为 tab”。（US-109c1）
 
-| 设置 | 默认 | 说明 | 故事 |
-| --- | --- | --- | --- |
-| 强制移动布局 | 关 | **关闭时** = 跟随屏幕宽度（< 600px 移动布局，≥ 600px 桌面布局，CSS 媒体查询自动切）；**打开时** = 无视屏宽，永远移动布局。给 iPad-landscape / 大屏分屏 / 可折叠屏用户用。**纯 CSS 层 layout escape hatch，不是 OS orientation lock**——不依赖 `screen.orientation.lock`（iOS Safari / Obsidian Mobile 都拒），跨平台 100% 工作 | US-502 |
+### Views
 
----
+- [ ] Week 为 7 行折叠面板，今日默认展开，row header 显示 `N tasks · XhYm`。（US-503 / US-116）
+- [ ] Month 为日期数字 + 任务数圆点；点击日期打开该日 list sheet。（US-504）
+- [ ] List / 今日 / 未排期 / 已完成 / 已放弃都是单列可读卡片列表。
+- [ ] Matrix 默认纵向 bucket 列表，保留 axis / bucket 语义。（US-103a）
+- [ ] Week / Month tray 如启用，显示为下方可折叠未排期区，动作 sheet 安排日期。（US-122a）
 
-## 8. 空状态 / 错误态 / 加载态
+### 卡片 / 动作
 
-- **空状态文案不变**（与 UX.md §8.1）；按钮位置改：从屏幕中央按钮改成"空状态文案 + 中央 ➕ 按钮一组"，确保大拇指可达
-- **加载骨架**：weeks tab 显示 7 个 row 骨架（每个一行）；月 tab 显示 6×7 灰格
-- **错误 toast**：从屏幕底部上滑出现，顶到 bottom action bar 之上；点 toast 任意位置 = 关闭
+- [ ] 单击卡片打开源 Markdown 编辑层；长按只打开动作 sheet。（US-168 / US-506）
+- [ ] 卡片不可拖拽；没有 drop target、放弃拖入区、跨 tab dwell。（US-501 / US-507）
+- [ ] 改期、清空排期、放弃、嵌套都有显式动作路径。（US-507）
+- [ ] 左滑完成、右滑放弃，阈值 30%，1 秒 undo。（US-508）
+- [ ] 子任务默认 1 层，`+N` 可打开完整树。（US-505）
 
----
+### Quick Add / 输入
 
-## 9. i18n & 视觉变量
+- [ ] Quick Add bottom sheet 避让软键盘，失败不丢输入，成功后可继续添加。（US-169 / US-509）
+- [ ] Daily Notes 不可用时不写 fallback，并给出可操作提示。（US-701）
+- [ ] Enter 提交输入守卫 IME composition。（US-413）
 
-**全部沿用 UX.md §10 / §11**，无差异。强调一条移动端必须满足的：
+### 文案 / 性能
 
-- **不要在 i18n 字符串里写桌面特定字面**（如 `Ctrl+T` / `右键菜单`）——这些在移动端没意义；如需在 UI 里说"按 ⌘T 加任务"这类，应**根据平台条件渲染**两套：桌面文案 + 移动端文案，而不是翻译两套快捷键字符串。
-
----
-
-## 10. 性能感知（移动端）
-
-- **打开看板首次** ≤ **2.5s**（移动设备解析 vault 慢，比桌面 1.5s 宽松）
-- **动作 sheet 改期 / 嵌套确认 → 渲染** ≤ 150ms（vs 桌面拖拽落定 100ms）
-- **滑动手势识别延迟** ≤ 50ms（手势阈值判定要快）
-- **未打开看板时插件感觉不存在** —— 同桌面 large-vault startup regression 反向验收，仍是硬指标
-
----
-
-## 11. 验收 checklist（移动端 PM 验收用）
-
-完成上述实现后，下列每条都必须能由 PM 在 iOS + Android Obsidian 上手动跑通；任意一条不过 = 不放行。
-
-### 布局 / 适配
-
-- [ ] 竖屏走移动布局（< 600px）；横屏（≥ 600px）回桌面布局；可在设置强制保持移动（US-502）
-- [ ] 顶部 tab 横向滚动；底部 sticky `未排期 + ➕` 按钮单手大拇指可达，触控高度 ≥ 44px
-- [ ] header 显 `📋 N today · ⚠ M overdue`，替代桌面 status bar（US-507）
-
-### 各 Tab
-
-- [ ] 周视图：7 行折叠面板，今日默认展开，row header 显 `N tasks · XhYm`（US-503）
-- [ ] 月视图：日历 + 数字 + 任务数圆点；点格弹 bottom sheet（US-504）
-- [ ] 已完成 / 未排期：卡片紧凑模式正常显示（US-505）
-- [ ] 移动端未排期区无论独立 tab 还是底部展开区，都与上方主内容同宽，单列满宽显示，不出现窄列 / 瀑布流。（UX-mobile §2 / §3.4 / US-505）
-
-### 卡片 / 交互
-
-- [ ] 长按 ≥ 500ms 弹动作菜单；源编辑只由单击卡片进入；移动手指只触发滚动 / swipe，不进入 drag mode（US-506 / US-168）
-- [ ] 移动端没有任务 drag/drop、drop target、放弃拖入区、跨 tab dwell；改期 / 放弃 / 嵌套都有动作 sheet 等价路径（US-507）
-- [ ] “设为子任务...”父任务选择器可搜索；自己 / 后代 disabled；确认后跨文件嵌套、清空被移动任务自己的 `⏳`、toast + undo（US-507 / US-125 / US-228）
-- [ ] 左滑卡 = 完成、右滑 = 放弃；30% 阈值；1 秒 toast undo（US-508）
-- [ ] 子任务默认 1 层，超出显 `+N`，点开弹 sheet 显全树（US-505）
-
-### Quick Add / 键盘 / 软件盘
-
-- [ ] ➕ 按钮唤起 bottom sheet；软键盘弹出 sheet 自动上移 + 8px 间距（US-509）
-- [ ] 自然语言日期解析（中英两套，US-410）
-- [ ] 桌面键盘快捷键全部 silent no-op，无 warning（US-501）
-
-### i18n / 视觉
-
-- [ ] zh ↔ en 实时切换（US-408），hashtag 字面不变
-- [ ] UI 文案不出现 `Ctrl+T` 等桌面快捷键描述；移动端写 `点 ➕ 按钮`（US-510）
-- [ ] prefers-reduced-motion 启用时动效降级但状态变化保留
-
-### 性能
-
-- [ ] 打开看板首次 ≤ 2.5s；动作 sheet 改期 / 嵌套确认 → 渲染 ≤ 150ms
-- [ ] 启用插件后**不打开看板**，Obsidian Mobile 在 6000+ 文件 vault 上无明显卡顿（large-vault startup regression 反向验收）
-
----
-
-## 12. 移动实现硬约束
-
-UX 决策对实现的硬约束（仅移动端独有）：
-
-1. **CSS 媒体查询而非 UA 检测**用于横竖屏 / 桌面 vs 移动布局分支
-2. **触摸事件优先**：用 PointerEvent 统一鼠标 + 触屏 + 笔，而非各自 mouseevent / touchevent 一份逻辑
-3. **`prefers-reduced-motion` 在移动端尤其重要**——很多用户开了系统级动效降级，必须遵守（UX.md §11.2）
-4. **滑动手势的 30% 阈值 + 1 秒 toast undo** 不能用 setTimeout 漂移；用 rAF 测 elapsed
-5. **bottom sheet 软键盘避让**用 `visualViewport.height` 计算，不用窗口高度（避免 iOS 软键盘高度判错）
-6. **long-press 与滚动 / swipe 仲裁**必须由同一手势 controller 管理（PointerEvent + 移动距离判定），移动后取消 long-press；不能另开 drag 分支
-7. **plugin 在移动端检测 platform**：`Platform.isMobile` (Obsidian API)，**仅作为 UI 层条件**——业务逻辑和数据层不分平台
-
----
-
-> **本文档与 UX.md 的关系**：UX.md 是 SSOT，本文档是 Δ。任何在两份文档里都出现的规则，**以 UX.md 为准**——本文档不应该重复（如有重复说明本文档冗余了，删掉）。本文档只承载移动端独有 / 移动端不同的部分。
+- [ ] 移动端不出现 `Ctrl`、右键、拖拽、hover 等桌面说明。（US-510）
+- [ ] zh/en 实时切换，用户数据字面不变。（US-408 / US-409）
+- [ ] 未打开看板不全量扫 vault；首次打开超时有骨架 / 进度。（US-404）

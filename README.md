@@ -143,6 +143,24 @@ The default repo config lives in `.crabbox.yaml` and points at `.github/workflow
 | Stamp created date | On | Whether new tasks get `➕ YYYY-MM-DD` |
 | Force mobile layout | Off | Use the phone layout on wider screens |
 
+## Development
+
+```bash
+pnpm install --frozen-lockfile  # install dependencies
+pnpm run dev                     # watch & rebuild on change
+pnpm run build                   # production build
+pnpm run typecheck               # TypeScript type checking
+pnpm run lint                    # ESLint (src only)
+pnpm run test:unit               # 408 unit tests (parser, writer, CLI, cache, query, i18n, …)
+pnpm run test:e2e                # WDIO/Obsidian e2e (requires Obsidian + WebDriverIO)
+```
+
+Preflight gate before every commit:
+
+```bash
+pnpm run typecheck && pnpm run lint && pnpm run test:unit && pnpm run build
+```
+
 ## License
 
 MIT.

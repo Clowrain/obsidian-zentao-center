@@ -1,530 +1,655 @@
 # ARCHITECTURE
 
-> 这份文档讲**数据怎么存、模块怎么拆、性能怎么扛**。
+> 本文只描述 Task Center 如何支撑 [USER_STORIES.md](./USER_STORIES.md) 与 [UX.md](./UX.md)：数据模型、模块边界、读写路径、缓存、性能、测试与发布约束。
 >
-> - 想知道**谁要什么 / 为什么** → [USER_STORIES.md](./USER_STORIES.md)（SSOT）
-> - 想知道**界面长啥样、交互怎么走** → [UX.md](./UX.md)
-> - 当前已知性能 root cause → §3 / §5 的 large-vault startup regression 约束
->
-> 每条架构决策都尽量回引 `US-xxx` 或 UX/architecture 锚点，方便双向追溯。设计结束之后，凡是新功能改动都按这份文档审。
+> 需求不在本文新增；实现不应绕过本文定义的对象模型。
 
----
+## 0. 架构原则
 
-## 0. 设计原则（与 UX 对齐）
+1. **Markdown 是唯一事实源**：任务数据只存在于 vault 的 Markdown 行中；内存缓存、Query、summary、view 都是派生结果。（US-401）
+2. **字节级写回**：改名、移动、嵌套、改期、完成、放弃都必须最小化改动目标行 / 目标块，保留未知 emoji、inline field、tag、block id、wikilink anchor 与用户原文。（US-407 / US-409）
+3. **一份 Query DSL**：filters、view、summary、tab preset、GUI 可视化编辑、GUI DSL 直编、CLI query 管理共用同一份 schema 与校验。（US-109t / US-219）
+4. **Tab 是持久 Query**：不存在独立持久化的“current query”。运行时只有 tab saved query、tab draft、effective query。（US-109u）
+5. **View 不拥有业务集合**：list / week / month / matrix 只消费 Query 结果并提供对应操作；TODO、今日、未排期、已完成等都是 QueryPreset。（US-100 / US-109k）
+6. **GUI 与 CLI 共用业务层**：解析、筛选、summary、写回、嵌套、QueryPreset CRUD 都必须通过同一服务层，不允许 CLI 和 GUI 各自实现。（US-201~219）
+7. **缓存是唯一读入口**：状态栏、看板、CLI 不直接扫 vault；所有任务读取经 TaskCache。（US-404）
+8. **事件增量优先**：文件变更只重解析该文件；打开看板 / list / stats / hash disambiguation 才允许显式全量 ensure。（US-404）
+9. **移动端不是降级桌面**：业务语义共用，交互适配层分离；移动端没有拖拽、dwell、hover、快捷键。（US-501 / US-507）
+10. **可测试纯逻辑优先**：解析、Query、继承、summary、writer plan、CLI formatter 都应是无 DOM 纯逻辑。
 
-1. **markdown 是 Truth**。所有可观察状态都来自 vault 里的字节；内存只允许有一份**派生缓存**，永远可以从文件全量重建。重启不丢任何业务状态。（US-401 / US-407）
-2. **单一数据源**给状态栏 / 看板 / CLI 共用——不允许任何代码路径绕开缓存自己跑 `parseVaultTasks`。（US-404 / large-vault regression #1/#2/#4）
-3. **事件增量优先，全量重扫为禁忌**。任何依赖 `metadataCache.on("resolved")` 的全量路径都视为 P0 缺陷。增量路径只在被改的那个 `TFile` 上重新解析。（large-vault regression #3/#4）
-4. **写永远是字节级 + 原子**。不读了改、改了写，统一走 `app.vault.process(file, mutate)`，让 Obsidian 自己保证原子性；不写半个文件。（US-403 / UX §6.7）
-5. **未识别 token 字节级保留**。任何 mutate 的输入是文件原始那一行，输出仍是同一行的最小修改版；emoji / inline field / block anchor / 优先级符号都按字节顺序保留。（US-407 / UX §6.5）
-6. **CLI 与 GUI 走同一份业务逻辑**。CLI = thin wrapper over `TaskCenterApi`；GUI 也只调 `TaskCenterApi`。两边的"列表"、"渲染子任务"等共享规则，不各自发明一套。
-7. **Query 是声明式 DSL，对应一等数据模型**。筛选栏、view 选择器、summary 配置器、预设 tab、用户保存 tab 都在编辑同一份 query 对象；不允许“工具条临时状态一套、已保存 preset 另一套”的双轨模型。（US-109t / US-109p1）
-   - UI 命名也必须服从这个对象模型：打开整份 query 编辑器的入口叫“编辑 Query”或等价对象名；只有真的只改 `filters` / `view` / `summary` 某一个分区时，才允许直接用分区名命名。（US-109p5）
-8. **没有独立持久化的“current query”对象**。运行时只存在“当前激活 tab 的 saved preset”与“挂在该 tab 上的 draft override”；渲染读取的是两者合成后的 effective query。任何想表达“回到当前 query”的地方，实际含义都必须是“回到当前 tab 的已保存版本”。（US-109u / US-109s1）
+## 1. 核心数据模型
 
----
+### 1.1 ParsedTask
 
-## 1. 数据模型
+`ParsedTask` 表示 Markdown 中一行任务及其派生信息。
 
-### 1.0 `QueryPreset` —— 顶部 tab / 保存配置 / 预设 tab 的统一模型
+```ts
+type TaskStatus = "todo" | "done" | "dropped" | "in_progress" | "cancelled" | "custom";
+
+interface ParsedTask {
+  id: string;              // stable id: "path:L42"，展示使用 1-based line
+  path: string;
+  line: number;            // 0-based
+  hash: string;            // 标题 + 路径派生的短 hash，用于行号漂移找回
+
+  rawLine: string;         // 原始整行
+  rawTitle: string;        // checkbox 后完整内容
+  indent: string;          // 空白 + callout prefix
+  marker: "-" | "+" | "*";
+  checkbox: string;
+
+  status: TaskStatus;
+  title: string;           // 去掉 Obsidian Tasks token / tag / inline field 后的标题
+  tags: string[];          // 合法 hashtag，字面保留，含 #
+
+  scheduled: string | null; // ⏳
+  deadline: string | null;  // 📅
+  start: string | null;     // 🛫
+  completed: string | null; // ✅
+  dropped: string | null;   // ❌
+  created: string | null;   // ➕
+  recurrence: string | null;// 🔁 原样片段
+  priority: string | null;  // 🔺⏫🔼🔽⏬ 原样片段
+
+  inlineFields: Record<string, string[]>;
+  durationFields: Record<string, number>; // 可解析为分钟的 inline field
+
+  parentLine: number | null;
+  childrenLines: number[];
+  calloutDepth: number;
+
+  mtime: number;
+}
+```
+
+解析器必须忽略空标题任务，例如只有 `- [ ]` 的行不进入 Task Center。（US-107）
+
+### 1.2 EffectiveTask
+
+继承、终态、独立日期子任务属于派生层，不写入 `ParsedTask` 本身。
+
+```ts
+interface EffectiveTask extends ParsedTask {
+  effectiveStatus: TaskStatus;
+  effectiveScheduled: string | null;
+  effectiveDeadline: string | null;
+  effectiveCreated: string | null;
+  terminalInheritedFrom: string | null; // ancestor id
+  renderParentId: string | null;        // 当前 view 上是否嵌在父卡里
+  isTopLevelInQuery: boolean;
+}
+```
+
+`deriveEffectiveTasks(tasks)` 负责：
+
+- 子任务继承父级未定义属性。（US-144）
+- 父终态使未完成子任务继承完成 / 放弃状态。（US-145 / US-144a）
+- 父可见时隐藏重复顶层子任务。（US-143）
+- 子任务有不同 `⏳` 时拆成对应日期上下文的独立顶层卡。（US-148 / US-149）
+
+### 1.3 QueryPreset
 
 ```ts
 type QueryViewType = "list" | "week" | "month" | "matrix";
+type TaskStateFilter = "todo" | "done" | "dropped";
+
+type DateToken =
+  | "all"
+  | "today"
+  | "tomorrow"
+  | "week"
+  | "next-week"
+  | "month"
+  | "unscheduled"
+  | `${number}-${number}-${number}`
+  | `${string}..${string}`;
 
 interface QueryFilters {
   search?: string;
-  tags?: string[];                 // AND 语义；普通 markdown tag
-  status?: "all" | TaskStatus[];   // 新写入以数组为主；兼容旧单值
+  tags?: { values: string[]; mode: "and" | "or" };
+  status?: TaskStateFilter[]; // undefined = 全部
   time?: {
-    scheduled?: string;
-    deadline?: string;
-    completed?: string;
-    abandoned?: string;
-    created?: string;
+    scheduled?: DateToken; // ⏳；unscheduled = is empty
+    deadline?: DateToken | "overdue" | "next-7-days";
+    completed?: DateToken;
+    dropped?: DateToken;
+    created?: DateToken;
   };
+}
+
+interface QuerySection {
+  id: string;
+  title: string;
+  when: QueryFilters;
+  orderBy?: string[];
+  limit?: number;
+  emptyText?: string;
+}
+
+interface QueryTray {
+  enabled: boolean;
+  title: string;
+  filters: QueryFilters;
+  orderBy?: string[];
+}
+
+interface MatrixAxis {
+  id: string;
+  title: string;
+  buckets: MatrixBucket[];
+}
+
+interface MatrixBucket {
+  id: string;
+  title: string;
+  when: QueryFilters;
 }
 
 interface QueryViewConfig {
   type: QueryViewType;
-  preset?: string;                 // 例如 "today"；只是 preset 名，不是新 view type
-  sections?: unknown[];
-  axis?: unknown[];
-  buckets?: unknown[];
+  sections?: QuerySection[];     // list / today preset
+  tray?: QueryTray;              // week / month 附加未排期区
   orderBy?: string[];
+  firstDayOfWeek?: "monday" | "sunday";
+  monthDensity?: "compact" | "cards";
+  matrix?: {
+    x: MatrixAxis;
+    y: MatrixAxis;
+    unmatched: "show" | "hide";
+    multiMatch: "first" | "duplicate";
+    showEmptyBuckets: boolean;
+  };
 }
 
 interface QuerySummaryMetric {
-  type: "count" | "sum" | "ratio" | "top_n" | "group_by";
+  id: string;
+  type: "count" | "sum" | "ratio" | "top-n" | "group-by";
   field?: string;
   numerator?: string;
   denominator?: string;
-  by?: string;
+  by?: "tag" | string;
   limit?: number;
-  format?: string;
 }
 
 interface QueryPreset {
-  id: string;            // 稳定 id，默认 tab / 最近 tab / 快捷键都引用它
-  name: string;          // 可显示名称，允许任意语言与符号
-  builtin?: boolean;     // 是否系统预设
-  hidden?: boolean;
+  id: string;
+  name: string;
+  builtin: boolean;
+  hidden: boolean;
   filters: QueryFilters;
   view: QueryViewConfig;
   summary: QuerySummaryMetric[];
 }
 ```
 
-**关键边界**：
+Schema 约束：
 
-- `filters` / `view` / `summary` 是同一份 DSL 的三个分区。
-- 今日、本周、本月、TODO、未排期、已完成、已放弃都只是 `QueryPreset` 实例，不是额外 view 类型。
-- `summary` 目前是声明式 metric 列表，不是任意脚本语言；只有当未来主区变成“纯报表 surface”时，才新增新的 `view.type`，而不是把现有 summary 强行塞进 view。
-- 存储层短期可继续沿用旧字段名（如 `savedViews`）以兼容已有 `data.json`，但语义上它承载的是 query preset；新代码与新文档都不应再把它理解为“只保存 filter 的 view”。
-- 若要表达未保存改动，应该增加 `draftByTabId[tabId]` 或等价结构，而不是落一个新的 `currentQuery` 持久字段。
-- `update/save-as/discard` 都是对“当前激活 tab + 其 draft”的操作，不是设置页上的另一套持久化流程：`update(tabId)` 覆盖当前 tab preset，`saveAs(newId)` 复制当前 effective query 生成新 tab，`discardDraft(tabId)` 丢弃该 tab 的 draft 并回到已保存版本。
-- GUI 的可视化编辑器、GUI 的 DSL 直编入口、CLI 的 query-preset 管理动词必须共用同一份 `QueryPreset` schema、同一套 normalize/validate 逻辑；不能各自维护一套解析器。
+- `filters / view / summary` 是一个对象的三个分区。
+- 今日是 `view.type = "list"` + sections，不是新 view 类型。（US-720）
+- 未排期 tray 是 `view.tray`，数据来源是单独 query，不改变主日期区集合。（US-109j）
+- `unscheduled` 属于 `time.scheduled is empty`，不是日期范围 token。（US-109e）
+- View 配置不能硬编码业务分类；section、axis、bucket 名称和条件来自 DSL。（US-109f / US-103a）
 
-### 1.1 `ParsedTask` —— 一行任务的全部派生信息
+### 1.4 TabState 与 Settings
 
 ```ts
-type TaskStatus = "todo" | "done" | "dropped" | "in_progress" | "cancelled" | "custom";
+interface RuntimeTabState {
+  activeTabId: string;
+  draftByTabId: Record<string, Partial<QueryPreset>>;
+  viewCursorByTabId: Record<string, {
+    weekStart?: string;
+    month?: string;
+    scrollTop?: number;
+    expanded?: string[];
+  }>;
+}
 
-interface ParsedTask {
-  // —— 标识 ——
-  id: string;          // "path:L42" — 唯一稳定 id（行号失效时回退 hash）
-  path: string;        // 文件路径
-  line: number;        // 0-based 行号
-  hash: string;        // 12-char short hash of `${path}::${cleanTitle}`，行号失效时找回（US-208/214）
-
-  // —— 字节级原文 ——
-  rawLine: string;     // 文件里那一整行（含 indent、checkbox、所有 token）
-  rawTitle: string;    // 去掉 indent/checkbox 后的内容部分
-  indent: string;      // leading 空白 + callout (`> ` 链)
-  marker: string;      // `-` `+` `*`
-  checkbox: string;    // ` ` / `x` / `-` / `/` / `>` / 自定义
-
-  // —— 派生展示字段 ——
-  status: TaskStatus;  // 由 checkbox 推
-  title: string;       // 去掉所有 emoji/tag/inline-field 之后的"干净标题"
-  tags: string[];      // 字面带 `#`，按出现顺序
-
-  // —— 时间 ——
-  scheduled: string | null; // ⏳ YYYY-MM-DD
-  deadline:  string | null; // 📅 YYYY-MM-DD
-  start:     string | null; // 🛫 YYYY-MM-DD
-  completed: string | null; // ✅ YYYY-MM-DD
-  cancelled: string | null; // ❌ YYYY-MM-DD
-  created:   string | null; // ➕ YYYY-MM-DD
-
-  // —— inline fields ——
-  inlineFields: Record<string, string[]>;      // 字段名字面原样保留，如 estimate / planned / 花了
-  durationFields: Record<string, number>;      // 能解析成分钟的字段值，供 summary 按配置读取
-
-  // —— 关系（仅同文件，跨文件用 nestRef，见 1.3） ——
-  parentLine:    number | null;
-  parentIndex:   number | null;     // listItems[].parent 的原值
-  childrenLines: number[];
-
-  // —— 继承 ——
-  inheritsTerminal: boolean; // 任一祖先是 [x]/[-] → 在活动 tab 隐藏
-
-  // —— 缓存元数据 ——
-  mtime: number; // file.stat.mtime；用于缓存失效与调试统计，undo 以内容比对为准
+interface PluginSettings {
+  openBoardOnStartup: boolean;
+  defaultTabId: string;
+  firstDayOfWeek: "monday" | "sunday";
+  forceMobileLayout: boolean;
+  queryPresets: QueryPreset[];
+  hiddenBuiltinTabIds: string[];
+  lastActiveTabId?: string;
+  stampCreatedByDefault: boolean;
 }
 ```
 
-**为什么把 `rawLine` 也保留**：写路径要靠它做 drift detection（"我读到的那一行还是不是你认为我要改的那一行"），undo 要用它生成"前一版字节"。让派生字段方便消费、让原文方便回写。
+持久化设置必须兼容旧 `data.json` 字段；删除旧设置项时可忽略但不能导致启动失败。（US-118）
 
-### 1.2 `TaskRef` —— CLI / 拖拽 / undo 通用的引用
+## 2. 模块边界
 
-```ts
-type TaskRef =
-  | { kind: "line";  path: string; line0: number }   // path:Lnnn（用户给的是 1-based，内部用 0-based）
-  | { kind: "hash";  hash: string }                  // 12 hex chars，行号失效时回退
-  | { kind: "task";  task: ParsedTask };             // 已解析好的对象（避免再解析）
+建议结构：
+
+```text
+src/
+├─ parser.ts              # Markdown / Obsidian Tasks 行解析，纯函数
+├─ task-tree.ts           # 父子关系、继承、独立日期子任务，纯函数
+├─ query/
+│  ├─ schema.ts           # QueryPreset 类型、默认预设、版本迁移
+│  ├─ validate.ts         # GUI / CLI 共用校验
+│  ├─ normalize.ts        # DSL 规范化、默认值填充
+│  ├─ filter.ts           # filterTasks
+│  ├─ summary.ts          # computeSummary
+│  └─ presets.ts          # builtin preset factory
+├─ cache.ts               # TaskCache，唯一 vault 读缓存
+├─ writer.ts              # 单行 / 块级写回与 undo op plan
+├─ api.ts                 # TaskCenterApi，GUI / CLI 共用业务入口
+├─ cli.ts                 # CLI 参数解析与输出格式化
+├─ view/
+│  ├─ task-center-view.ts # ItemView 外壳
+│  ├─ tabs.ts             # tab strip / menus
+│  ├─ query-editor.ts     # 可视化 + DSL 编辑
+│  ├─ filters.ts          # filter popovers
+│  ├─ summary.ts          # summary render
+│  ├─ views/list.ts
+│  ├─ views/week.ts
+│  ├─ views/month.ts
+│  ├─ views/matrix.ts
+│  ├─ card.ts
+│  ├─ source-dialog.ts
+│  ├─ dnd.ts
+│  ├─ mobile-actions.ts
+│  └─ undo.ts
+├─ quickadd.ts
+├─ status-bar.ts
+├─ settings.ts
+├─ deps.ts                # Daily Notes / Tasks 依赖健康
+├─ dates.ts
+├─ i18n.ts
+├─ styles.ts?             # 若需要 TS class 常量，不放颜色
+└─ main.ts
 ```
 
-`resolveRef(ref): ParsedTask | error` 是单入口。错误集合：
+### 2.1 依赖规则
 
-| 错误 | 何时 |
-| --- | --- |
-| `not_found` | path/line 都不在缓存 + hash 也不在 |
-| `ambiguous_slug` | hash 撞多条 → 返回候选列表，**绝不猜**（US-208 / US-214） |
-| `out_of_date` | path:Lnnn 在文件里不再是 task 行，但 hash 找到 → 走 hash 命中（warn 一行） |
+| 模块 | 可以依赖 | 禁止依赖 |
+| --- | --- | --- |
+| parser | 标准库、Obsidian 类型定义 | App、DOM、cache、writer |
+| task-tree | ParsedTask、日期工具 | DOM、App |
+| query | ParsedTask / EffectiveTask、日期工具 | DOM、writer、view |
+| cache | parser、Obsidian App/Vault/MetadataCache | view、writer、cli |
+| writer | parser、dates、Obsidian Vault process | view、cache |
+| api | cache、writer、query、task-tree、settings store | DOM |
+| cli | api、formatter、i18n | view、DOM |
+| view | api、i18n、Obsidian UI | parser 直接扫 vault |
+| status-bar | api/cache readonly、deps、i18n | writer、view |
+| settings | settings store、query presets、deps | task writer |
 
-### 1.3 `Cache<path, {mtime, tasks: ParsedTask[]}>` —— 一份共享缓存
+任何模块若需要“所有任务”，必须通过 `TaskCenterApi.list()` 或 `TaskCache.ensureAll()` 间接获得，不能自行 `app.vault.getMarkdownFiles()`。
+
+## 3. 读取与缓存
+
+### 3.1 TaskCache 职责
 
 ```ts
 interface FileEntry {
+  path: string;
   mtime: number;
-  tasks: ParsedTask[];   // 同文件按 line 升序
-  hasTaskListItem: boolean; // 缓存 metadataCache 的快速判断结果
+  hasTaskListItem: boolean;
+  tasks: ParsedTask[];
 }
 
 class TaskCache {
-  // 关键：只解析有任务的文件，没有任务的文件 hasTaskListItem=false 直接跳（#1 large-vault regression）
-  private byPath: Map<string, FileEntry> = new Map();
-  private byHash: Map<string, ParsedTask[]> = new Map(); // hash 不唯一时一对多
-
-  // 操作
-  invalidateFile(path: string): void;     // 单文件失效（事件驱动）
-  ensureFile(path: string): Promise<FileEntry>; // 懒加载该文件
-  ensureAll(): Promise<ParsedTask[]>;     // 全量返回（首次开看板用，懒加载所有有任务的文件）
-  get(path: string): FileEntry | undefined;
-  flatten(): ParsedTask[];                // 按 path 字典序展平，给 list/筛选用
-  on(event: "changed", cb: (paths: Set<string>) => void): () => void;
+  ensureFile(path: string): Promise<FileEntry>;
+  ensureAll(options?: { signal?: AbortSignal }): Promise<ParsedTask[]>;
+  flatten(): ParsedTask[];
+  invalidateFile(path: string): void;
+  removeFile(path: string): void;
+  renameFile(oldPath: string, newPath: string): void;
+  resolveRef(ref: TaskRef): Promise<ParsedTask>;
+  onChanged(cb: (change: CacheChange) => void): () => void;
 }
 ```
 
-**禁止**：暴露 `parseVaultTasks(app)` 直接给 `view` / `status-bar` / `cli` 调用——所有调用必须经 `TaskCache`。`parser` 模块只负责"给我一个文件的内容，吐 ParsedTask 数组"，**不**做 vault 遍历。
+缓存维护：
 
-### 1.4 跨文件父子链
+- `byPath: Map<string, FileEntry>`。
+- `byHash: Map<string, ParsedTask[]>`。
+- `flattenCache: ParsedTask[] | null`，文件变更后标脏。
+- `pendingParseByPath` 防止同一文件并发重复解析。
 
-`ParsedTask.parentLine` 只表示**同文件内**的父任务行号。跨文件嵌套（US-125 / US-228）通过下面两件事一起表达：
+### 3.2 事件路径
 
-1. **物理移动**：执行 `nest` 时把 child 的整个子树**真正搬到** parent 的文件里、parent 行的子级末尾，并按 parent indent + 4 空格重新缩进（writer 已实现 `planCrossFileNest`）。所以"嵌套之后" parent 和 child 在同一个文件里，`parentLine` 直接生效。
-2. **不维护跨文件指针**：内存里**不存** "child 的虚拟父在另一个文件" 的关系；那种关系只在拖拽落定的瞬间存在，落定即物理化。这避免缓存里出现"父在 A 文件、子在 B 文件"的悬空引用。
-
-> **实现要点**：跨文件 nest 必须先写 parent 文件、再写 child 文件。中途崩溃时 parent 多了一份，child 还在原处——比"child 没了 + parent 没收到"安全得多。失败时 toast 提示用户手动收尾（writer 已实现这个顺序）。
-
----
-
-## 2. 模块拆分
-
-```
-src/
-├── parser.ts        纯函数：line → ParsedTask；file content + listItems → ParsedTask[]
-├── cache.ts         TaskCache（新模块，从 main.ts 抽出）
-├── writer.ts        所有写动词：set*, mark*, addTask, nestUnder, applyUndoOps（已存在）
-├── cli.ts           TaskCenterApi（业务层）+ formatList/formatShow/formatStats（输出层）
-├── view/            看板视图（拆细，目前 view.ts 太大）
-│   ├── view.ts          ItemView 主体 + 事件订阅
-│   ├── tabs/
-│   │   ├── today.ts
-│   │   ├── week.ts
-│   │   ├── month.ts
-│   │   ├── completed.ts
-│   │   └── unscheduled.ts
-│   ├── card.ts          单卡渲染（含子任务递归）+ 状态机
-│   ├── tree.ts          可选共享 traversal / sort helper；CLI 渲染成 box-drawing，GUI 渲染成 DOM
-│   ├── dnd.ts           拖拽 controller（含 rAF dwell timer，UX §6.1）
-│   ├── source-dialog.ts 源 Markdown 编辑 shell/controller（US-168）
-│   └── undo.ts          UndoStack（深 20，drift 校验）
-├── status-bar.ts    状态栏（订阅 cache，不再 rescan）
-├── quickadd.ts      QuickAdd modal
-├── settings.ts      设置面板
-├── i18n.ts          字符串集（zh-CN / en）
-├── dates.ts         日期工具
-├── anim.ts          动画工具
-├── types.ts         共享类型
-└── main.ts          Plugin 主体：注册 view / commands / cli / status-bar / 事件路由
+```text
+Obsidian vault/metadata event
+  → TaskCache.invalidateFile(path)
+  → 单文件解析完成
+  → 更新 byPath / byHash / flattenCache
+  → emit cache.changed(paths)
+  → status-bar / open views / tests 订阅刷新
 ```
 
-### 2.1 模块边界（强约束）
+只有 `cache.ts` 订阅原始 vault / metadata 事件。view、status-bar、CLI 不订阅 `metadataCache.on("resolved")`，也不直接重扫。（US-404）
 
-| 模块 | 允许调用 | 不允许调用 |
-| --- | --- | --- |
-| `parser` | 标准库、Obsidian 类型 | `cache` / `writer` / `view` / `cli` |
-| `cache` | `parser`、Obsidian `App/TFile/metadataCache` | `writer` / `view` / `cli` |
-| `writer` | `parser`、Obsidian `App/TFile/vault.process` | `cache`（写完触发事件，由事件驱动 cache 失效） |
-| `cli` (TaskCenterApi) | `cache` / `writer` / `parser`（仅纯函数） | `view` / DOM |
-| `view` | `cache` / `cli` / `writer` 通过 cli | 直接 `parseVaultTasks` |
-| `status-bar` | `cache` | `parseVaultTasks`、`writer` |
-| `main` | 所有模块 | — |
+事件策略：
 
-**关键反向约束**：
-- `cache` **不**直接调 `writer`；写完后通过 `vault.modify` 事件回流到 `cache.invalidateFile`。
-- `view` **不**自己订阅 `metadataCache.on("resolved")`（#3 large-vault event-flood regression）。订阅只在 `cache` 一处。
-- `status-bar` **不**自己 `parseVaultTasks`。这是 large-vault regression 的根本原因。
-
-### 2.2 Source edit panel / shell（US-168）
-
-点击卡片的查看/编辑路径统一为 source edit panel。旧的 hover popover、卡片双击打开源文件、右键菜单打开源文件都应删除，避免三套入口表达同一能力。#78 spike 的结论是：Obsidian public API 不能把原生 `MarkdownView` 安全嵌入 plugin `Modal`，而直接打开 `WorkspaceLeaf` 会让用户离开当前 Task Center 页面；因此这里的 dialog 必须是当前 Task Center 上方的 overlay/shell。
-
-```
-Task card click
-  → TaskCenterView.openSourceDialog(task)
-  → SourceEditDialog.open(task)
-  → resolve TFile(task.path)
-  → create a temporary WorkspaceSplit inside the current-view overlay
-  → create a real WorkspaceLeaf in that split and open the file as MarkdownView
-  → set cursor / scroll the task line near the middle
-  → Obsidian MarkdownView handles live preview/source editing and save semantics
-  → cache invalidation → board refresh
-```
-
-**硬约束**：
-
-- 编辑内容必须来自任务所在文件的原文 Markdown，不能用 `MarkdownRenderer` 只读渲染替代。
-- 打开后不能裸切到新的 Markdown 页面；Task Center 必须仍在背景里，前景 shell 承载真实 Obsidian editor leaf。
-- 定位使用 `MarkdownView.editor.setCursor()` + `scrollIntoView(..., true)`，把任务行放到可视区域中间附近。
-- 旧 `ContextPopoverController` / `view/popover.ts` 不再需要；实现任务必须删除 hover popover 代码、样式、测试和文档引用，而不是只在打开 dialog 前关闭它。
-- 写回由 Obsidian MarkdownView / TextFileView save 管线处理；不要在 dialog 里另写一套 parser/writer 或 textarea 全文保存。看板只通过既有 vault/cache 事件刷新。
-- `openAtSource()` 普通 leaf 行为只能作为实现过渡工具存在；最终用户路径不再暴露右键"打开源文件"或卡片双击跳源文件。
-- `docs/source-edit-dialog-spike.md` 是本架构决策的证据文件；后续实现如果偏离真实 leaf 路径，必须先更新 spike 证据并经 PM/reviewer 确认。
-
-**模块边界**：
-
-- `view/source-dialog.ts` 只处理 Obsidian UI 生命周期、真实 leaf 打开、光标定位、关闭和 refresh callback。
-- 它可以依赖 `App` / `WorkspaceLeaf` / `MarkdownView` / `TFile` / `ParsedTask`，但不依赖 `TaskCenterApi` 写动词。
-- `view.ts` 只负责把卡片 click 事件路由到 `openSourceDialog(task)`，并阻止按钮 / drag / contextmenu 冒泡误触发；不得继续给卡片绑定 `dblclick → openAtSource`。
-- 测试以 e2e 为主：点击卡片后断言 source edit shell 出现、真实 Markdown editor 内容包含源文件上下文、当前任务行居中或至少 cursor line 正确、修改子任务后 vault 文件变更并刷新卡片。
-
-### 2.3 今日预设 Query（US-720）
-
-今日不是新的通用 view 类型，而是一个 `QueryPreset`：`filters.status=[todo]` + `view.type=list` + `view.preset=today`。现有 DOM / e2e 兼容层可以保留 `data-view="today"`，但实现语义上它是 list preset，不引入第二套 view 抽象，也不创建“今日计划”持久状态。
-
-```
-cache.flatten()
-  → active todo filter
-  → overdue: deadline < today
-  → today: scheduled === today and not already overdue
-  → unscheduled-rec: no effective scheduled date, sorted by US-104 recommendation order
-  → render capped groups (max 3 each)
-```
-
-对应 DSL 形态：
-
-```yaml
-id: preset-today
-name: 今日
-filters:
-  status: [todo]
-view:
-  type: list
-  preset: today
-  sections:
-    - id: overdue
-      when: deadline < today
-      limit: 3
-    - id: today
-      when: scheduled == today
-      limit: 3
-    - id: unscheduled-rec
-      when: scheduled is empty
-      order_by: [deadline_risk, created_desc]
-      limit: 3
-summary: []
-```
-
-**硬约束**：
-
-- `data-tab="today"` 是入口合同；`data-view="today"` 当前作为兼容容器合同保留，但语义必须等价于 `view.type=list + preset=today`（US-720a）。
-- 三组使用 `data-today-group="overdue|today|unscheduled-rec"`；组内渲染最多 3 张卡，防止第一屏退化成普通 backlog（US-720b）。
-- `data-action="reschedule-tomorrow"` 必须调用现有 `TaskCenterApi.schedule()` / `writer.setScheduled()` 路径，不能在 view 中手写 markdown 替换（US-720c）。
-- 三组全空时渲染 `data-today-empty`；CSS 负责视觉居中和有任务时的顶部留白（US-720d / US-720e）。
-- 已删除的今日计划 / 批量排程 surface 不再合法；相关入口、状态、e2e 选择器都不应重新出现，除非 USER_STORIES 先恢复对应故事。
-
----
-
-## 3. 缓存与事件
-
-### 3.1 事件订阅总图（唯一路径）
-
-```
-        ┌─────────────────────────────────────┐
-        │       Obsidian VaultEvents          │
-        │  modify / create / delete / rename  │
-        └──────────────┬──────────────────────┘
-                       │ (单一订阅源)
-                       v
-                  ┌────────────┐
-                  │  cache.ts  │ invalidateFile(path)
-                  └─────┬──────┘
-                        │
-           "changed" event {paths: Set<string>}
-                        │
-        ┌───────────────┼────────────────┐
-        v               v                v
-  status-bar.ts    view.ts         (其他订阅者)
-  (debounced 500ms) (debounced 400ms)
-```
-
-- **`cache` 是唯一**订阅 vault / metadata 事件的模块。
-- `view` 与 `status-bar` 都订阅 `cache.on("changed")`，根据 `paths` 做局部 / 全量再渲染。
-- **`metadataCache.on("resolved")` 完全不订阅**——这是 #3 large-vault event-flood regression 的根因，没有合法用途。所有 metadata 变化通过 `metadataCache.on("changed", file)` 单文件回调走 `invalidateFile(file.path)`。
-  - 如果某个文件之前没被 metadata 索引到、刚刚索引到，会以 `changed` 事件单文件抵达，cache 自然在那时解析它——不需要任何 vault 级"全部重新审视一遍"的钩子。
-
-### 3.2 缓存的生命周期
-
-| 时机 | 行为 |
+| 事件 | 处理 |
 | --- | --- |
-| `onload` | 创建空 `TaskCache`；不预热。 |
-| 状态栏首次刷新 | **不**触发 `ensureAll()`。状态栏被动累积：cache 因 `metadataCache.changed` 单文件抵达而逐渐变大，状态栏数字也跟着变大。#4 large-vault startup regression "启用就卡死" 必须从源头杜绝——没有任何"状态栏需要全量底数"的路径。 |
-| 首次需要全集 | 看板首次打开、`list` / `stats`、或 hash ref 解析需要全库候选时调用 `cache.ensureAll()`。仅遍历 `hasTaskListItem===true` 的文件，并发 32 限速。 |
-| 文件 modify | `metadataCache.changed` → `cache.invalidateFile(path)` → **eager** 重解析这一个文件（不懒）→ 解析完成后 emit `cache.changed({paths: [path]})`。订阅者在 changed 回调里调 `flatten()` 拿到的是已经包含新解析结果的快照。 |
-| 文件 rename | invalidate 旧 path + 新 path；逐 file 重映射所有缓存的 `ParsedTask.path`（不重新解析）。 |
-| 文件 delete | `cache.byPath.delete(path)` + 从 `byHash` 中删除该 path 的 hash → `changed`。 |
-| `onunload` | 清空 cache，取消订阅。 |
+| modify | eager 重解析该文件 |
+| create | 如果是 markdown，解析该文件 |
+| delete | 移除该 path 的缓存与 hash 索引 |
+| rename | 更新 path；必要时重解析新文件 |
+| metadata changed | 只 invalidate 对应文件 |
 
-### 3.3 关键不变量
+### 3.3 全量 ensure 的边界
 
-- **没有 full vault rescan 路径**。任何代码改动如果写出 `parseVaultTasks(app)` 直接调用 → CI 中通过 grep 拦截：`forbidden in main.ts/view.ts/status-bar.ts/cli.ts`。仅 `cache.ts` 内部的 `ensureAll()` 允许遍历，且**只解析 `hasTaskListItem===true` 的文件**。
-- **没有"双订阅"**。#3 large-vault event-flood regression 的 root cause 是 `main.ts` 与 `view.ts` 同时订阅 `metadataCache.resolved`。新架构下只有 `cache` 订阅原始事件，所有其他模块订阅 `cache.changed`。
-- **没有"未打开看板就跑全量"**。`status-bar` 的刷新逻辑只读 `cache.flatten()`；cache 还小（未打开过看板时）状态栏数字也小，被动累积，**绝不**为状态栏触发 `ensureAll`（UX §13 / #4 large-vault startup regression）。
-  - **实现**：`status-bar` 仅监听 `cache.changed`；`cache` 在每个 `metadataCache.changed(file)` 单文件回调里**eager** 解析涉及的文件——**只解析这一个文件**，不预热全量。状态栏由"逐渐变多"而不是"一开始就全有"。这避免了"启用插件就卡死"。
-  - **trade-off**：未打开看板时状态栏的 today/overdue 计数可能短期偏低（尚未访问的文件没解析到）。这是设计选择——优于卡死。打开看板一次后，cache 全量化，状态栏立刻准确。
+允许触发 `ensureAll()` 的路径：
 
-### 3.4 cache.changed 与 flatten 的时序契约
+- 用户打开看板且当前 query 需要全集。
+- CLI `list` / `stats`。
+- hash ref 解析且当前 hash 索引无法证明唯一。
+- Query 编辑器需要候选 tag / field 统计。
 
-为避免订阅者读到半成品状态，定义如下严格时序：
+不允许触发 `ensureAll()` 的路径：
 
-| 接口 | 同步 / 异步 | 时序保证 |
-| --- | --- | --- |
-| `invalidateFile(path)` | sync 入口 + 内部 async 重解析 | 调用立即返回；内部启动该 file 的 eager re-parse |
-| `cache.changed({paths})` 事件 | async emit | **保证在 paths 中所有 file 的 re-parse 完成之后**才 emit。订阅者在回调里 `flatten()` 拿到的就是 post-reparse 状态 |
-| `flatten(): ParsedTask[]` | sync | 返回**当前 byPath 的快照**。在 invalidateFile 与下一次 changed 之间调用，可能拿到旧或新——所以**禁止在 changed 之外的随机时机 flatten**，订阅者全部走 changed 触发 |
-| `ensureFile(path): Promise<FileEntry>` | async | 强制等待该文件解析完成（如果在解析中则复用 in-flight Promise）。CLI 写动词的 ref 解析路径专用 |
-| `ensureAll(): Promise<ParsedTask[]>` | async | 首次需要全集时调用；并发解析所有 `hasTaskListItem` 文件后 emit 一次大 changed，调用方在 await 后消费 |
+- 插件 onload。
+- 状态栏首次渲染。
+- 单个写命令的 `path:Lnnn` ref。
+- 每次 metadata resolved。
 
-**实现细节**：
-- `invalidateFile(path)` 内部维护一个 `pending: Map<path, Promise<FileEntry>>`。多次 invalidate 同一 path 在解析未完成时复用同一个 Promise（去抖）。
-- 解析完成后**先**写回 `byPath` / `byHash`，**再** emit `changed`。顺序错了 → 订阅者读到旧数据。
-- view / status-bar 收到 changed 后调 `flatten()` 是同步、安全的——cache 已经 post-reparse。
+大 vault 启动时状态栏可以在缓存未全量化前显示部分计数；打开看板后全量化并变准确。这是避免“启用插件即卡住”的设计取舍。（US-404）
 
-**反例**（禁止）：
-```ts
-// ❌ 错：可能拿到 invalidate 后、reparse 前的中间态
-cache.invalidateFile(path);
-const tasks = cache.flatten();
-view.render(tasks);
+### 3.4 文件筛选与并发
 
-// ✅ 对：等 changed
-cache.on("changed", () => view.render(cache.flatten()));
-cache.invalidateFile(path);
+`ensureAll()` 遍历 markdown 文件时，先看 `metadataCache.getFileCache(file)`：
+
+- 已索引且明确没有 task list item：跳过。
+- 未索引或未知：解析文件，不能当作无任务。
+- 有 task list item：解析文件。
+
+解析并发限制为固定池（默认 16 或 32，可根据测试调整）。单文件解析失败只记录 warning 和 stats，不让整个 vault 空白。
+
+## 4. Query 执行管线
+
+### 4.1 主流程
+
+```text
+TaskCache.flatten()
+  → parse-level ParsedTask[]
+  → deriveEffectiveTasks()
+  → applyQueryFilters(filters)
+  → applyViewProjection(view)
+  → computeSummary(summary)
+  → render surface / CLI format
 ```
 
----
+### 4.2 Filter 语义
 
-## 4. 写路径
+`applyQueryFilters` 必须按用户故事实现：
 
-### 4.1 通用 mutate 模板
+- `search`：标题关键字匹配。
+- `tags`：合法 hashtag，默认 AND。
+- `status`：todo / done / dropped 多选；undefined 表示全部。
+- `time.scheduled`：只看有效 `⏳`；`unscheduled` 表示有效排期为空。
+- `time.deadline`：只看 `📅`；`overdue` 属于 deadline。
+- `time.completed`：只看 `✅`。
+- `time.dropped`：只看 `❌`。
+- `time.created`：只看 `➕`。
 
-每个写动词都走同一个骨架（已在 `writer.ts/mutateLine` 实现）：
+所有日期比较都使用 ISO `YYYY-MM-DD` 规范化；显示层再按 locale 格式化。（US-411）
+
+### 4.3 View Projection
+
+View projection 不再筛选业务集合，只把 query 结果投影成渲染模型。
 
 ```ts
-async function mutateLine(app, path, line, mutate: (raw: string) => string | null) {
-  await app.vault.process(file, (data) => {
-    const lines = data.split("\n");
-    const original = lines[line];
-    if (!parseTaskLine(original)) {
-      throw new TaskWriterError("task_not_found", `${path}:L${line + 1} not a task line`);
-    }
-    const next = mutate(original);
-    if (next === null || next === original) return data;  // 幂等：unchanged
-    lines[line] = next;
-    return lines.join("\n");
-  });
-  // 写完成功后：返回 {before, after}；事件订阅自动触发 cache.invalidateFile
+type ViewModel =
+  | { type: "list"; sections: ListSectionModel[] }
+  | { type: "week"; days: DayColumnModel[]; tray?: ListSectionModel }
+  | { type: "month"; cells: MonthCellModel[]; tray?: ListSectionModel }
+  | { type: "matrix"; buckets: MatrixCellModel[]; unmatched: EffectiveTask[] };
+```
+
+- List：按 sections 分组；无 sections 时使用一个默认 section。
+- Week：按有效 `scheduled` 落入 7 天；无有效 scheduled 不进日期区，可进入 tray。
+- Month：按有效 `scheduled` 落入月历日期格；移动端只改变渲染密度。
+- Matrix：按用户配置 bucket 条件匹配；未命中进入 unmatched。
+
+### 4.4 Summary
+
+`computeSummary(tasks, metrics)` 对过滤后的集合计算：
+
+- count。
+- sum(field)：读取 `durationFields[field]` 或可解析的 inline field。
+- ratio(numerator, denominator)。
+- top-n(by)：tag 或用户字段。
+- group-by(by)。
+
+字段名是用户配置，不允许视图层硬编码 `estimate` / `actual` 分支；默认 preset 可以使用这些字段名作为配置值。（US-302 / US-303）
+
+## 5. 写路径
+
+### 5.1 Writer 不变量
+
+所有写操作走 `app.vault.process(file, mutate)`，保证单文件原子写。（US-403）
+
+`writer.ts` 提供纯规划函数和执行函数：
+
+- `setEmojiDate` / `clearEmojiDate`。
+- `setCheckbox`。
+- `addTag` / `removeTag`。
+- `setInlineField`。
+- `renameTaskLine`（CLI/API 用；GUI 标题编辑走源 Markdown 编辑层）。
+- `planSameFileNest`。
+- `planCrossFileNest`。
+- `appendTaskToDailyNote`。
+- `applyUndoOps`。
+
+Writer 只修改目标 token：
+
+- 改期只替换 / 插入 / 删除该行自己的 `⏳`。
+- 清空排期只清空该行自己的 `⏳`，不改继承来源。
+- 完成写 `[x]` 和 `✅ YYYY-MM-DD`。
+- 放弃写 `[-]` 和 `❌ YYYY-MM-DD`。
+- 同父级同日创建的子任务不重复写 `➕`。（US-146）
+
+### 5.2 幂等与 before/after
+
+每个写动词返回：
+
+```ts
+interface WriteResult {
+  ok: true;
+  unchanged: boolean;
+  before: string[];
+  after: string[];
+  undoOps: UndoOp[];
 }
 ```
 
-**重要**：`vault.process` 回调内**永远 `throw new TaskWriterError(code, hint)`**，不要 `throw "string"`——后者破坏 `instanceof TaskWriterError` 判定，上游的 code/hint 路由会失效。
+如果目标状态已满足，返回 `unchanged: true`，不写文件；CLI 格式化为 `ok … unchanged`。（US-203 / US-204）
 
-**幂等保证**（US-203）：`mutate` 返回 `null` ⇒ unchanged；`writer` 各动词在 mutate 里检测目标态相同，不写文件（例：`markDone` 先看是否已 `[x] ✅ 同日期`）。
-
-### 4.2 跨文件原子性
-
-`app.vault.process` 是单文件原子。跨文件 nest 不存在跨文件事务，做法（已在 `nestUnder` 实现）：
-
-1. **快照检查**：读 child 当前内容，比对 `child.rawLine` 与 `child.line` 处实际内容。不匹配 → `task_not_found`（drift），中止。
-2. **先写 parent**：`vault.process(parentFile, …)`；同样校验 parent 行未漂移。
-3. **再写 child**：`vault.process(childFile, …)`；如果失败，parent 已经有了一份 child 子树。**不回滚 parent**，而是 throw 一个 `nest_partial` 带两个文件路径的错误，让 GUI toast / CLI stderr 把责任交给用户手动处理。
-
-> **设计权衡**：宁愿"重复一份"也不愿"丢一份"。重复可见、丢失不可见。
-
-#### 失败操作的 Undo 语义（US-125 / UX §6.7）
-
-UX 硬约束 #4 要求 "拖拽嵌套真的跨文件移动行，撤销必须能回退"。失败的 nest 也要进 Undo 栈，规则：
-
-| 失败阶段 | 文件状态 | Undo 栈记录 | 撤销时做什么 |
-| --- | --- | --- | --- |
-| 步骤 1 快照失败 | child / parent 都未改 | **不入栈**（什么都没发生） | — |
-| 步骤 2 parent 写失败 | child / parent 都未改 | **不入栈** | — |
-| 步骤 3 child 写失败（"重复"状态） | parent 多了一份子树，child 原样 | **入栈**：`undoOps = [{ which: "parent", line: insertIndex, before: [], after: reindented }]` | 撤销时仅删除 parent 那份多余子树（`applyUndoOps` 倒序应用）；child 没动，不需要还原 |
-| 步骤 3 成功（正常路径） | parent 有子树，child 行已删 | **入栈**：完整 `undoOps`（parent 插入 + child 删除两条 op） | 倒序：先把 child 删除的行恢复回去，再把 parent 多的行删掉 |
-
-实现层面：`nestUnder` 的返回签名已经是 `{ before, after, unchanged, crossFile, undoOps: UndoOp[] }`——失败"重复"路径下返回**仅含 parent 插入那一条 op** 的 `undoOps`，由 view 入栈，toast 文案多加一行 "撤销可移除 parent 那份重复"。`UndoStack.pop()` 的内容比对（§6.2 修订）同样适用——只要 parent 文件中那段插入的内容仍在原处，撤销干净；如那几行被外部改了 → 内容 diverge → 拒绝撤销。
-
-### 4.3 行号失稳（line drift）
-
-任何写动作的 `mutate` 都会在 `vault.process` 内部重新读到最新文件内容，并校验：
-
-- 目标行存在
-- 目标行仍是 task 行（`parseTaskLine` 匹配）
-- 跨文件场景下额外校验 `lines[child.line] === child.rawLine`
-
-不满足任意一条 → `TaskWriterError("task_not_found", ...)`，UI 弹 toast：`⚠ 任务行已被外部修改，请刷新后重试`。
-
-### 4.4 Callout 任务（US-406）字节级保留
-
-Obsidian callout 里的任务行形如 `> - [ ] task` 或多层 `>>>  - [ ] task`。`parseTaskLine` 的正则已经 capture `indent = (\s*(?:>\s*)*)` 把 callout 链整体当作"前缀"。所有 mutate（`setEmojiDate` / `setInlineField` / `setCheckbox` / `addTagIfMissing` / `rebuildTaskLineWithNewTitle`）的实现都只对 indent 之后的部分操作，indent 字节原样保留。同样 `extractTaskBlock` 的 `indentLen()` 会把 callout 链长度算进缩进深度，跨文件 nest 时 callout 任务移到新文件后 callout 链按目标位置上下文重新算（如果目标在普通段落，callout 链丢——这是合理的"上下文跟着新位置"）。
-
-**测试要求**：`writer.test.mjs` 必须有一个 `nested-callout-rewrite` case：
-- 输入：`>> - [ ] task #foo ⏳ 2026-04-25`
-- 操作：`setEmojiDate(line, "⏳", "2026-04-26")`
-- 断言：输出 `>> - [ ] task #foo ⏳ 2026-04-26`（`>>` 前缀字节不变）
-- 同测：rename / addTag / setActual 各一份，覆盖所有 mutate 函数。
-
-### 4.5 写后回路（cache → view）
-
-写完成→ Obsidian 触发 `vault.on("modify", file)` → `cache.invalidateFile(file.path)` → 异步重解析这一个文件 → `cache.changed({paths: [path]})` → view debounce 400ms 重渲染。
-
-**为什么不用同步通知**：写动作可能由 CLI 触发（无 UI），由 view 订阅 cache 是天然的扇出，避免 writer 知道下游有谁。
-
----
-
-## 5. CLI 调度
-
-除了 task 动词，CLI 还应暴露 query-preset 管理动词。它们是对 `QueryPreset` 存储层的 CRUD 和元数据操作，不直接触碰 markdown 任务：
-
-- `query-list` / 等价动词：列出 preset id、名称、可见性、默认标记
-- `query-show <id>`：输出该 preset 的 DSL
-- `query-save` / `query-update`：从 stdin / 文件 / 参数读取 DSL 并创建或覆盖 preset
-- `query-rename` / `query-copy` / `query-hide` / `query-delete` / `query-set-default`
-
-这些动词与 GUI 的“保存为 tab / 更新当前 tab / 重命名 / 复制 / 隐藏 / 删除 / 设为默认”语义必须完全一致。
-
-### 5.1 入口契约
+### 5.3 行号漂移与 ref 解析
 
 ```ts
-this.registerCliHandler("task-center:<verb>", description, schema, (args) => this.cli<Verb>(args));
+type TaskRef =
+  | { kind: "line"; path: string; line0: number }
+  | { kind: "hash"; hash: string };
 ```
 
-每个 verb 的实现走同一个骨架（已在 `main.ts:registerAllCliHandlers` 现成）：
+`resolveRef` 规则：
+
+- `path:Lnnn`：先解析该文件并检查行号。
+- 若行号不再是同一任务，尝试用 hash 找回；找回则返回 warn `out_of_date`。
+- hash 多候选返回 `ambiguous_slug` + 候选列表，绝不猜。（US-208 / US-214）
+- 找不到返回 `not_found`。
+
+Writer 在 `vault.process` 内再次校验目标 rawLine，防止读取后被外部修改。
+
+### 5.4 嵌套
+
+GUI 拖拽嵌套与 CLI `nest ref=A under=B` 共用同一函数。（US-125 / US-228）
+
+语义：
+
+1. 解析被移动任务整棵子树。
+2. 拒绝移动到自己或后代。（US-126）
+3. 把子树物理移动到目标父任务所在位置。
+4. 重新缩进为目标父级子任务。
+5. 清空被移动 root 自己行的 `⏳`。
+6. 保留所有子孙任务自己的 `⏳` / emoji / inline fields / tag / 原文。
+
+跨文件没有真正事务。策略：先写 parent 文件，再写 child 文件。若第二步失败，宁可产生可见重复也不丢任务；返回 `nest_partial` 并提供可撤销 parent 插入的 undo op。
+
+### 5.5 Quick Add 写入
+
+Quick Add / CLI add 的默认路径由 Daily Notes 依赖解析：
+
+```text
+Daily Notes enabled + folder configured
+  → today daily note path
+  → append `- [ ] title ➕ YYYY-MM-DD [tokens...]`
+```
+
+Daily Notes 不可用时，add 失败并保留输入；不写 fallback 文件。（US-163 / US-701）
+
+`stamp-created=true|false` 由 CLI 单次参数覆盖全局默认。（US-213）
+
+## 6. Undo
 
 ```ts
-private async cli<Verb>(args: CliArgs): Promise<string> {
-  const ref = parseRef(args.ref);                  // 不接 allTasks
-  const task = await this.cache.resolveRef(ref);   // 单文件 resolve
-  const result = await writer.<verb>(this.app, task, …);
-  // 写完异步刷新看板（不 await）：refreshOpenViews()
-  return formatOk(task, result.before, result.after, result.unchanged, "<verb>");
+interface UndoOp {
+  path: string;
+  line: number;
+  before: string[];
+  after: string[];
+}
+
+interface UndoEntry {
+  label: string;
+  ops: UndoOp[];
 }
 ```
 
-**关键变化**（修 #2 large-vault regression）：**没有 verb 在入口跑 `allTasks()`**。
+Undo 栈：
 
-- `list` / `stats` 是只读且需要全集的，首次调用走 `cache.ensureAll()` 后再 `flatten()`；这是用户显式请求全集，不属于启用插件时的后台全量扫描。后续命中 cache 秒回。
-- 写 verb（`schedule / done / drop / nest / …`）的 `ref` 解析改为：
-  - `path:Lnnn` → 直接 `cache.ensureFile(path)`，单文件解析后查那一行 → ParsedTask。
-  - `hash` → 看 `cache.byHash`；如果 cache 还没加载到包含该 hash 的文件，调一次 `ensureAll()`。一旦预热过，后续都走单文件路径。
+- 只属于看板 UI；CLI 写不入栈。
+- 深度 20。
+- 关闭 leaf / 重启后清空。
+- 应用撤销前对目标区域做内容比对：当前文件中的 `after` 必须仍在原位置；否则拒绝撤销并提示内容已外部修改。
 
-> **澄清 vs §3.3 "没有 full vault rescan 路径"**：那条约束的精确语义是"写 verb 入口禁止直接 `parseVaultTasks` 或重复 `allTasks()`"（修 #2 large-vault regression 的全表反复扫）。`ensureAll()` 是 cache 的全 vault 一次性预热，仅扫 `hasTaskListItem===true` 的文件；由用户显式需要全集的路径触发（看板 / list / stats / hash disambiguation），不是启用插件时的后台扫描。
+`Ctrl/Cmd+Z` 只在当前 active leaf 是 TaskCenterView 且 undo 栈非空时拦截；其它情况下交给 Obsidian 编辑器处理，避免破坏笔记编辑撤销。（US-128）
 
-### 5.2 输出形态
+## 7. GUI 架构
 
-`formatList` / `formatShow` / `formatStats` / `formatOk` / `formatAdd` / `formatError` 已在 `cli.ts` 实现并满足 UX §14：
+### 7.1 TaskCenterView
 
-- 第一列恒为稳定 id（US-202 / UX §14.2-1）
-- 不输出 JSON / YAML（US-205 / UX §14.2-2）
-- 多行块用 `├ └` box-drawing（UX §14.2-4）
-- 写动词输出 `ok / before / after`（US-204）
-- 幂等 unchanged 仍返回 `ok` 不是 `error`（US-203）
+`TaskCenterView` 负责：
 
-### 5.3 错误形态
+- 读取 active tab id 与 draft。
+- 调用 `api.evaluateQuery(tabId)` 得到 view model + summary。
+- 渲染 Header、Tab Strip、Toolbar、Summary、View Body。
+- 路由卡片 click、context menu、drag、mobile actions。
+- 维护 per-tab view cursor：weekStart、month、scroll、expanded。
+- 暴露测试属性 `data-test-cache-version`。
 
-错误统一走 `formatError(code, message)`，code 集合（UX §14.3）：
+不允许 View 直接解析 vault 或手写 writer mutation。
+
+### 7.2 Query Editor
+
+Query Editor 操作 `draftByTabId[activeTabId]`：
+
+```text
+visual controls → update draft → validate → effective query → render preview
+DSL editor     → parse/validate → update same draft → controls rehydrate
+```
+
+保存动作：
+
+- `updateCurrentTab(tabId)`：覆盖 saved query。
+- `saveAsNewTab(effectiveQuery, sourceTabId?)`：创建新 id；`sourceTabId` 只用于复制来源元数据或默认命名，不改变用户语义。
+- `discardDraft(tabId)`：删除 draft。
+
+不实现单独的 `saveTab()` / `saveCurrentQuery()` 用户动作。无来源 query 的首次保存也调用 `saveAsNewTab`，因为用户结果同样是“创建一个新的 Query Tab”。所有动作走 `QueryPresetService`，CLI query 动词调用同一个 service。
+
+### 7.3 Source Markdown 编辑层
+
+点击卡片调用：
+
+```text
+TaskCenterView.openSourceEditor(taskId)
+  → api.resolveTask(taskId)
+  → SourceDialog.open(task.path, task.line)
+  → 使用 Obsidian 编辑器能力定位任务行
+  → 文件保存 / modify event
+  → cache invalidate
+  → view refresh 后保持原 tab / filter / scroll
+```
+
+SourceDialog 不实现自己的 Markdown parser/writer，不用 textarea 冒充完整编辑体验。若 Obsidian public API 无法安全嵌入原生 MarkdownView，必须记录降级边界并保留后续修复任务；不能把只读 preview 当完成。（US-168f）
+
+旧入口必须删除：hover popover、dblclick 打开源文件、右键打开源文件、卡片 inline title input。（US-168d / US-161）
+
+### 7.4 DnD Controller
+
+`view/dnd.ts` 只负责桌面拖拽状态机：
+
+- drag start threshold。
+- drop target hit test。
+- tab dwell。
+- 落点优先级。
+- 调用 API 写动作。
+- 入 undo 栈。
+- 动画 class 编排。
+
+移动端不加载拖拽行为；移动端动作由 `mobile-actions.ts` 调用同一 API。（US-501 / US-507）
+
+### 7.5 DOM 选择器契约
+
+E2E 和 UI 自动化依赖稳定 `data-*`，不依赖 CSS 类名或文案：
+
+| 选择器 | 含义 |
+| --- | --- |
+| `[data-task-id="path:Lnnn"]` | 卡片或子任务行 |
+| `[data-tab-id="<query-id>"]` | Query tab |
+| `[data-date="YYYY-MM-DD"]` | week 列 / month 日期格 |
+| `[data-view="list|week|month|matrix"]` | view body |
+| `[data-query-editor]` | Query 编辑器 |
+| `[data-drop-zone="abandon"]` | 桌面放弃目标区 |
+| `[data-drop-zone="unscheduled-tray"]` | 未排期 tray |
+| `[data-card-action="open|done|drop|menu|reschedule-tomorrow"]` | 卡片动作 |
+| `[data-dep-warning="tasks-missing|tasks-disabled"]` | Tasks 依赖警告 |
+| `[data-test-cache-version="n"]` | cache 刷新版本 |
+
+变更这些契约必须同步改 e2e。
+
+## 8. CLI 架构
+
+CLI 注册到 Obsidian CLI 命名空间，不提供独立二进制。（US-201）
+
+### 8.1 Task 动词
+
+Task 动词薄封装 `TaskCenterApi`：
+
+- `list` / `stats`：显式 ensureAll。
+- `done` / `drop` / `schedule` / `actual` / `nest`：按 ref 解析，单文件优先。
+- `add`：走 Daily Notes append。
+- `list parent=<id>`：resolve parent 后基于 task tree 输出子任务。（US-212）
+
+输出格式由 `cli.ts` 统一处理，保证：
+
+- 第一列稳定 id。
+- 写操作 `ok / before / after`。
+- 幂等 unchanged 仍为 ok。
+- 错误 `error <code>` + 一句人话。
+
+### 8.2 Query 动词
+
+QueryPreset 动词调用 `QueryPresetService`：
+
+- `query-list`：列出 id、name、builtin、hidden、default。
+- `query-show id=<id>`：输出完整 DSL。
+- `query-create`：读取 DSL 创建 tab。
+- `query-update id=<id>`：校验后覆盖。
+- `query-rename` / `query-copy` / `query-hide` / `query-delete` / `query-set-default`。
+
+删除自定义 tab 不删除任务；预设 tab 不允许永久删除，只允许隐藏 / 恢复。（US-216~219）
+
+### 8.3 错误码
+
+固定英文错误码至少包含：
 
 ```ts
 type ErrorCode =
@@ -532,367 +657,196 @@ type ErrorCode =
   | "ambiguous_slug"
   | "out_of_date"
   | "invalid_date"
+  | "invalid_query"
   | "write_conflict"
-  | "read_only"
+  | "daily_notes_missing"
+  | "daily_notes_folder_missing"
   | "invalid_nest"
   | "nest_partial";
 ```
 
-`TaskWriterError` 的 `code` / `hint` 直接映射成两行输出。绝不猜（US-214）：`ambiguous_slug` 一定列候选。
+错误码不翻译；后接人话跟随 Obsidian 语言。（US-211 / US-412）
 
-### 5.4 树遍历共享
+## 9. 依赖健康
 
-父子任务的 traversal / sort / ancestor visibility 规则必须只有一份。CLI 把中性树结构渲染成 box-drawing 文本；GUI 把同一语义结构渲染成 DOM 嵌套。若当前只有 CLI 一个消费者，可以先把 helper 留在 CLI 内部；一旦 GUI 也需要同一 traversal，就抽到共享纯函数模块。
+`deps.ts` 负责检测：
 
----
+- Daily Notes 核心插件启用状态。
+- Daily Notes folder 配置。
+- Tasks 社区插件安装 / 启用状态。
 
-## 6. Undo 栈
+检测结果提供给：
 
-### 6.1 边界
+- Header / 状态栏警告。
+- Quick Add submit guard。
+- CLI add guard。
+- 设置页说明。
 
-- **范围**：仅 view 内发起的字节级写动作（拖拽 / 改期 / 改名 / 完成 / 放弃 / 嵌套 / quick-add）。CLI 写**不**入栈。（UX §6.7）
-- **深度**：20。超出从底部丢弃。
-- **持久化**：内存。关闭 leaf / 重启 Obsidian 即清空。栈是 UI 状态，不是文件级。
+配置变化后，依赖状态自动刷新，不要求重启。（US-701c）
 
-### 6.2 数据结构
+## 10. i18n 与日期
 
-```ts
-interface UndoOp {
-  path: string;
-  line: number;        // 操作起点
-  before: string[];    // 操作前那一段 lines
-  after: string[];     // 操作后那一段 lines
-}
+### 10.1 i18n
 
-interface UndoEntry {
-  label: string;       // toast 用
-  ops: UndoOp[];       // 多 op，按写入顺序；undo 时倒序应用
-}
-```
-
-> **2026-04-25 修订**：原稿额外存 `capturedMtime: Map<string, number>` 做 mtime 比对；实际实现（`view/undo.ts`）走的是**内容比对**，更精确。下面段落已更新。
-
-`UndoStack.pop()`（`view/undo.ts`）反向应用 ops：对每个 op 调 `vault.process(file, mutate)`，**写入前逐行内容比对** `lines[op.line + j] === op.after[j]`——如果当前文件里"我们写过的那几行"和栈里记录的 `after` 不一致，throw 一个 divergence 异常，catch 里 notify 用户 + 不再 push 回栈，撤销整体中止；toast：`⚠ cannot undo: content diverged at <path>:L<n> — skipping undo`（UX §6.7）。
-
-**为什么内容比对优于 mtime 比对**（决策 2026-04-25）：mtime 会因 Obsidian 自身的 backlink / metadata 写入、或文件别处的非冲突编辑而被动跳变，把"安全的撤销"误挡掉。内容比对精确到 `op.line ~ op.line + op.after.length` 那几行，**只在实际被外部改写时**才拒绝。符合用户期望"我没动你写的，撤回去就行"。
-
-### 6.3 与写路径协作
-
-- `setScheduled` / `markDone` / `nestUnder` / `addTask` / `markDropped` / `renameTask` 都返回 `{ before, after, … , undoOps?: UndoOp[] }` 或可由调用方组装出 undoOps。
-- 跨文件 nest 已经返回 `undoOps`，标注两个文件。
-
-### 6.4 与 Obsidian 编辑器 undo 的边界
-
-`Ctrl+Z` 在 Obsidian 里**已经**是编辑器的撤销键。我们的看板 UndoStack 与编辑器 undo 必须明确分轨，否则用户在另一个 leaf 编辑笔记时按 `Ctrl+Z` 会被插件吃掉，灾难。
-
-**判定规则**（plugin 注册命令时）：
+`i18n.ts` 提供：
 
 ```ts
-this.addCommand({
-  id: "undo-board-action",
-  name: tr("cmd.undo"),
-  hotkeys: [{ modifiers: ["Mod"], key: "z" }],
-  checkCallback: (checking) => {
-    // 仅当焦点在 task-center view 且 UndoStack 非空时拦截
-    const active = this.app.workspace.activeLeaf;
-    const isOurView = active?.view instanceof TaskCenterView;
-    const hasEntry = isOurView && (active.view as TaskCenterView).undoStack.size > 0;
-    if (checking) return hasEntry;
-    if (hasEntry) (active.view as TaskCenterView).undo();
-    return true;
-  },
-});
+t(key: string, vars?: Record<string, string | number>): string;
+getLocale(): "zh-CN" | "en" | string;
+onLocaleChanged(cb: () => void): () => void;
 ```
 
-`checkCallback` 返回 `false` 时 Obsidian 会让 `Ctrl+Z` 走默认路径（编辑器 undo / no-op）。要点：
+切换语言只触发 UI 重渲染，不重扫 vault；`ParsedTask` 不依赖 locale。（US-408）
 
-- **看板 leaf 焦点 + UndoStack 非空** → 我们处理
-- **任何其他 leaf 焦点（编辑器、daily note、…）** → Obsidian 自己处理
-- **看板焦点但栈空** → 不拦截，让 Obsidian 看是否有它的 undo 路径（一般没有，no-op）
-- **不绑定 `Ctrl+Shift+Z`**（重做）——v1 不做重做，避免栈语义与编辑器 redo 打架
+禁止翻译：
 
-> 反例：v1 一上线必有用户报"Ctrl+Z 把我笔记改坏了"，根因往往是命令注册时 `callback` 直接拦截而没用 `checkCallback`。
+- 用户 Markdown 字面。
+- hashtag。
+- inline field 字段名。
+- Obsidian Tasks emoji 字段。
+- CLI error code。
 
-### 6.5 重做（v1 不做）
+允许翻译：UI 文案、toast、设置项、错误人话、默认预设显示名。
 
-UX 没列重做需求，v1 不实现，避免栈语义与 Obsidian 自身 undo 冲突。`Ctrl+Shift+Z` 不绑定。
+### 10.2 日期
 
----
+`dates.ts` 负责：
 
-## 7. 性能预算
+- ISO 写回：永远 `YYYY-MM-DD`。（US-411）
+- locale 显示。
+- 周一 / 周日起始日。
+- token 解析：`today / tomorrow / yesterday / week / next-week / month / next-month / YYYY-MM-DD / FROM..TO`。
+- 中文自然语言：今天、明天、昨天、周一至周日、本周、下周、本月、下月。（US-410）
 
-| 指标 | 预算 | 实现方式 |
+无法识别日期时返回“无日期”，不猜测。
+
+### 10.3 IME Guard
+
+所有 Enter 提交输入框必须使用统一 helper：
+
+```ts
+function shouldSubmitEnter(e: KeyboardEvent): boolean {
+  return e.key === "Enter" && !e.isComposing && e.keyCode !== 229;
+}
+```
+
+适用：tab rename、Quick Add、DSL editor save、搜索 / filter 需要 Enter 的场景。（US-413）
+
+## 11. 性能预算
+
+| 场景 | 预算 | 策略 |
 | --- | --- | --- |
-| **打开看板首次** | ≤ 1.5s（≤ 1 万文件、≤ 5000 任务） | cache 懒加载，仅解析 `hasTaskListItem` 的文件；并行 `cachedRead`（`Promise.all` 限 32 并发） |
-| **打开看板二次** | ≤ 200ms | cache 命中，直接 `flatten()` |
-| **拖拽落定 → 渲染** | ≤ 100ms | 写文件 + 单文件 invalidate；view 在 `metadataCache.changed` 后立即 render（绕过 400ms debounce） |
-| **状态栏更新** | ≤ 1s | cache 单文件失效后 500ms debounce；不阻塞主线程 |
-| **未打开看板 (large-vault startup regression 场景)** | "插件感觉不存在" | 不预热 + 不订阅 resolved 全量 + 状态栏只反应 `cache.changed` |
-| **首次大 vault 索引完毕之前** | 状态栏可显示 `📋 …` | `cache.changed` 慢慢累计；状态栏不主动等 |
+| 插件 onload | 不触发全量扫描 | 创建空 cache，状态栏被动刷新 |
+| 首次打开看板 | ≤ 1.5s 目标；超时显示 skeleton / 进度 | metadata 快速跳过 + 限并发解析 |
+| 二次打开看板 | ≤ 200ms | flatten cache 命中 |
+| 单文件修改后刷新 | ≤ 1s | 单文件 invalidate + debounce render |
+| 桌面拖拽落定反馈 | ≤ 100ms 感知反馈 | 先视觉反馈，写入后 cache 刷新确认 |
+| 移动端输入搜索 | debounce ≥100ms | 避免每键全量 render |
 
-### 7.1 关键优化点
+渲染约束：
 
-1. **`hasTaskListItem` 快速跳过**：
+- 父子查找使用 Map，不在 render 热路径中 `Array.find` 全表扫描。
+- DataTransfer types 用 `.contains()`，不 `Array.from(...).includes()`。
+- 移动端卡片设置 `touch-action: pan-y`。
+- 列表容器设置 `overscroll-behavior: contain`。
+- CSS 禁止 `transition: all`。
+- reduced motion 下动画时长 ≤ 50ms 但保留状态变化。
 
-   ```ts
-   const meta = app.metadataCache.getFileCache(f);
-   if (meta !== null && !meta.listItems?.some(li => li.task !== undefined)) {
-     continue;  // 已索引、确认无任务 → 跳过
-   }
-   // meta === null（metadata 还没索引到这个文件）→ 不能跳过，必须解析
-   ```
+## 12. 样式架构
 
-   ⚠️ 关键：`getFileCache(f)` 在 metadataCache 还没索引该文件时返回 `null`，**不能**当作"无任务"短路，否则首启动期间未索引的 task 文件会被静默丢弃。`null` 必须当 "未知 → 解析"。已索引的文件如果 `listItems.some(task !== undefined) === false`，才安全跳过。比 `cachedRead + regex` 快 100x；~6500 文件 vault 实测跳过 6000+。
-2. **限并发**：`Promise.all` 一把全开会让 main thread 排队；用 32 并发的简单池（实现：手写一个 `mapLimit`，<30 行）。32 是经验初值——预期能跑通 large-vault repro 的 ~6500-file vault；遇到全任务 vault（5000+ 解析）卡顿再下调到 16 / 8 评估。
+`styles.css` 只使用 Obsidian CSS 变量和插件自定义语义变量；不写硬编码颜色。
 
-   **错误隔离策略**：`mapLimit` 内部对单文件解析失败**只 `console.warn(file.path, err)`、不向上传播**，整批继续。原因：vault 级批处理一个文件挂掉就全空白对用户毫无价值，已知失败的几个跳过、显示其余的远好。失败文件下次 `metadataCache.changed` 触发时还会再被尝试解析。`__stats.parseErrCount` 同时加 1 用于性能 / 健康监控。
-3. **不预解析子任务关系**：`parentLine/childrenLines` 在 `parseFileTasks` 内部完成，不需要二次 pass。
-4. **`renderTabBar` 缓存计数**：`cache.changed` 一次重算 4 个 tab 的计数，存到 view state，render 直接读（修 #5 large-vault render regression）。
-5. **`renderTree` 用 `DocumentFragment`**：构造完一次性 append，避免 reflow。
+允许来源：
 
-### 7.2 兜底：超 5s 的 vault
-
-如果 cache 全量解析 > 5s（用 `performance.now()` 测）：
-
-- view 主区显示 `⏳ 正在解析 vault... (N/M files)` 进度条 + 取消按钮（UX §8.4）。
-- 取消 = 中止剩余文件解析；已解析的部分照常显示。
-- 不阻塞状态栏；状态栏可能数字不准，但不卡。
-
-### 7.3 渲染层性能（2026-05-02）
-
-render 策略是**全量 teardown + rebuild**（`el.empty()` 后重建整棵 DOM 树），不引入 virtual DOM。这意味着每次 render 都要：销毁所有 DOM 节点 → 创建新节点 → 重绑事件 → 触发 layout/paint。移动端（低功耗 SoC、触摸事件密度高）对此特别敏感。
-
-**硬约束**：
-
-1. **父子关系查找必须 O(1)**。`hideChildrenOfVisibleParents` / `findParentTask` / `countDescendants` / `openSubtreeSheet` 中禁止 `this.tasks.find()` 线性扫描。实现：`render()` 开头预建 `Map<string, ParsedTask>`（key = `path:L<line+1>`），存为 `_taskIndex` 实例字段，所有查找走 `_taskIndex.get()`。
-2. **搜索输入必须 debounce ≥100ms**。每次按键直接 `render()` 会导致移动端打字卡顿；当前实现为 150ms。
-3. **`flatten()` 结果应缓存**。脏标记机制：`byPath` 发生增删改时标脏，`flatten()` 返回缓存副本；`cache.changed` emit 前保证缓存已更新。
-4. **`Array.from(dt.types).includes(...)` 禁止**。`DataTransfer.types` 是 `DOMStringList`，用 `.contains()` O(1) 查询，不分配新数组。`dragover` 事件每秒触发数十次，分配开销不可忽略。
-5. **移动端 CSS 必须有 `touch-action: pan-y`**（卡片），避免浏览器水平滚动和 JS 手势竞争。
-6. **移动端列表容器必须有 `overscroll-behavior: contain`**，防止 scroll-chaining 到父 viewport。
-7. **动画/滑动元素需要 `will-change: transform`**，提升到合成层，减少主线程 paint。
-8. **`transition: all` 禁止**——只过渡具体属性（如 `border-color, background-color, color`），避免全属性 style recalc。
-
----
-
-## 8. 测试切面
-
-> 与 @Reviewer 的 e2e 改造（task #1）对齐：架构层把"可测试切面"定清楚，让 e2e 不会被 race。
-
-### 8.1 测试金字塔
-
-```
-       ┌────────────┐
-       │  e2e (wdio)│   Obsidian + fixture vault → 整个流程
-       └────┬───────┘
-            │
-       ┌────┴───────┐
-       │ integration│   parser+cache+writer 联动（无 Obsidian DOM）
-       └────┬───────┘
-            │
-       ┌────┴───────┐
-       │   unit     │   parser 纯函数 / writer pure planner / cli formatter
-       └────────────┘
-```
-
-### 8.2 单元（`node --test`，无 Obsidian）
-
-| 模块 | 覆盖目标 |
-| --- | --- |
-| `parser.ts` | `parseTaskLine` / `parseTaskFromLine` / `cleanTitle` / `shortHash` / `parseDurationToMinutes` / `formatMinutes` |
-| `writer.ts` | `setEmojiDate` / `setInlineField` / `setCheckbox` / `addTagIfMissing` / `rebuildTaskLineWithNewTitle` / `planSameFileNest` / `planCrossFileNest` / `applyUndoOps` |
-| `cli.ts` | `filterTasks` / `computeStats` / `formatList` / `formatShow` / `formatStats` / `formatOkWrite` / `formatError` / `parseTaskId` |
-| `dates.ts` | `resolveWhen` / `isoWeekNumber` / `daysBetween` / `addDays` / `startOfWeek` |
-| `i18n.ts` | hashtag/emoji 字面不被翻译路径覆盖 |
-
-> 现状测试文件会随代码演进变化；必须覆盖 `cache` 增量失效、writer 字节级保留、CLI 输出形态、Quick Add 解析与 IME 守卫。若抽出共享 tree traversal，再为该纯函数补单测。
-
-### 8.3 集成（`node --test`，fake App）
-
-`test/obsidian-stub.mjs` 已经造了一个最小 App。扩展用例：
-
-1. **cache 增量失效**：mock 一个 6 文件 vault，调用 `cache.ensureAll()`，断言 5 个被 `hasTaskListItem` 跳过、1 个被解析；触发 `vault.modify(f1)`，断言只 f1 被重解析。
-2. **跨文件 nest**：mock 两个文件，调 `nestUnder`，断言两个文件内容都对、`undoOps` 能成功 reverse。
-3. **drift 检测**：撤销前外部改写"被撤销的那几行"，断言 `UndoStack.pop()` 抛"content diverged"并停止应用（内容比对，2026-04-25 修订；不再用 mtime）。
-4. **CLI 入口不全扫**：mock cache 只有一个 hot path `ensureFile`，断言 `cli.schedule(ref="path:L42")` 只调用了一次 `ensureFile(path)`，**没有** `ensureAll()`。
-
-### 8.4 e2e（wdio + Obsidian Sandbox）
-
-按 UX §17 验收 checklist 一对一覆盖。重点 race-free 切面：
-
-1. **拖拽落定后等待 cache changed**：e2e 不用 `sleep(N)`，等 `data-test-cache-version` 属性递增（view 在每次 `cache.changed` 后递增 dataset attr）。让 Reviewer 的 e2e 能 `expect(elem).attr("data-test-cache-version", v + 1)`。
-2. **写动词 idempotent 测试**：连续两次 `task-center:done ref=…`，断言第二次 stdout 含 `unchanged`。
-3. **大 vault 启用插件不卡**：性能 budget 测试，`enable plugin → wait for ready → expect time < 3s`。
-4. **`prefers-reduced-motion` 启用时动画降级**：mock `matchMedia`，断言 transitions 时长 ≤ 50ms。
-
-### 8.5 测试钩子（架构层暴露）
-
-| 钩子 | 用途 |
-| --- | --- |
-| `view.contentEl.dataset.testCacheVersion` | e2e 等待 cache 重建 |
-| `cache.__stats: { ensureCount, parseCount, skipCount }` | 性能回归测试 |
-| `plugin.__forFlush()` | 测试时主动等所有 debounced timer 完成 |
-
-> **不**暴露 `NEXT_PUBLIC_E2E` 之类的 production 路径分支。这些钩子永远存在、不消耗性能、不改变行为。
-
-### 8.6 DOM 选择器契约（与 @Reviewer e2e 对齐）
-
-为让 e2e 用语义选择器、不耦合 CSS 实现细节，view 必须提供下列稳定的 `data-*` 属性。重构 view 时这些属性是合同的一部分，**改名 / 删除 = breaking change，必须同步改 e2e**。
-
-| 选择器 | 元素 | 含义 |
-| --- | --- | --- |
-| `[data-task-id="<path:Lnnn>"]` | 卡片根元素 | 唯一定位一张任务卡（包括子任务） |
-| `[data-date="YYYY-MM-DD"]` | 周视图列体、月视图日期格 | 桌面拖拽 drop target；移动端仅作日期 / 折叠 row / 月格定位 |
-| `[data-tab="today|week|month|completed|unscheduled"]` | tab 头 | 切 tab |
-| `[data-view="today"]` | 今日执行视图容器 | US-720 今日 tab 的主容器 |
-| `[data-today-group="overdue|today|unscheduled-rec"]` | 今日视图分组 | 逾期 / 今日 / 未排期推荐三组 |
-| `[data-action="reschedule-tomorrow"]` | 今日卡片快捷按钮 | 写入 `⏳ <tomorrow>`，必须走 writer 路径 |
-| `[data-today-empty]` | 今日视图空状态 | 三组全空时显示，视觉居中 |
-| `[data-drop-zone="abandon"]` | 桌面底部放弃目标区 | 桌面拖拽 drop target；移动端不渲染对应放弃区，放弃走 swipe / action sheet（US-123 / US-507） |
-| `[data-drop-zone="card:<path:Lnnn>"]` | 桌面卡片体（拖到另一卡 = 嵌套） | 桌面拖拽 drop target |
-| `[data-card-action="open\|done\|drop\|menu"]` | 卡片 / 子任务上的按钮或控件 | 点击触发动作；子任务 checkbox 也用 `done`，但会阻止冒泡以避免打开 source edit；新增 / 编辑子任务统一走 source edit panel，不提供卡片内新增子任务动作（US-141 / US-142a / US-168） |
-| `[data-test-cache-version="<n>"]` | view contentEl | 每次 `cache.changed` 后 +1，e2e `waitUntil` 用 |
-
-**反例（禁止 e2e 依赖）**：CSS 类名（`.bt-task-card-...`）、文本内容（"完成" / "Done"——会因 i18n 变）、DOM 结构层级（`.children[0].children[1]`）。
-
-**a11y 配套**：每张卡同时有 `role="article"` + `aria-label`（"任务: <title>, 状态 <X>, 日期 <Y>"），盲读 / 键盘用户可达；e2e 在断言"是哪张卡"时优先用 `data-task-id`，但要验"这张卡上有什么文字"时用 aria-label 比 textContent 更稳。
-
-**子任务交互约束**：内嵌 `.bt-subcard` 承载 hover、source edit 入口、状态 checkbox 与桌面拖拽源能力；不注册嵌套 drop target，避免它抢走用户拖到父卡时的落点。CSS 默认 cursor 不能是 `grab`，桌面拖拽能力由 `draggable` 与 drag event 提供，而不是靠持续的鼠标形态暗示。移动端子任务不提供拖拽。
-
----
-
-## 9. i18n（US-408~412）
-
-```
-i18n/
-├── zh-CN.ts    UI 文案
-├── en.ts       UI 文案
-└── index.ts    getLocale() + t(key, args?) + 切语言事件
-```
-
-### 9.1 翻译边界
-
-| 类别 | 翻译？ | 来源 |
-| --- | --- | --- |
-| UI 文案（tab 名、按钮、设置项 label/description、空状态、toast） | ✅ | `i18n/<locale>.ts` |
-| 错误"一句人话"部分（`error <code>  <一句人话>` 后半截） | ✅ | `i18n/<locale>.ts`，按 `<code>` 取 |
-| 错误 `<code>` 本身（`not_found` / `ambiguous_slug` / …） | ❌ 恒英文 | hardcoded（AI / 脚本依赖稳定标识，不能因语言变） |
-| 自然语言日期解析词（`today/今天/明天/Mon`） | 多语全识别 | `dates.ts` 解析表（中英两套永远都识别，不分 locale） |
-| 日期显示（"周三 4 月 24 日"） | ✅ | locale 格式化 |
-| 日期写回文件 | ❌ 恒 ISO `YYYY-MM-DD` | `dates.ts` 格式化（US-411 数据兼容硬约束） |
-| **markdown 里的字面**（hashtag / inline field 字段名 / Obsidian Tasks emoji 标记） | ❌ 永远字节级保留 | parser/writer 不识别也不动它 |
-
-### 9.2 禁止翻译的字符集合（i18n 字符串 build-time 校验）
-
-> **2026-04-25 修订**：原稿把 emoji 字段标记列入 ban-list 是过紧的约束——`⏳ 📅 ✅ ❌` 是产品视觉语言，UI 文案里要用（"📋 N today · ⚠ M overdue"、"⏳ tap to schedule" 等）。把它们 ban 掉等于强迫所有 UI 字符串避开产品的字面表达，反而推动重构成更脆的代码。
-
-`i18n/<locale>.ts` 里的每条 `value` 过校验：**不得包含**
-
-- inline field 字段名（任何 `[xxx::` 形式）—— 这是数据语法，翻译者改了会 break parser
-- 任何 `#` 开头的 hashtag 字符串 —— 同上，hashtag 是数据
-
-包含 ⇒ 编译 fail。
-
-**emoji 字段标记**（`⏳ 📅 🛫 ✅ ❌ ➕ 🔁 🔺 ⏫ 🔼 🔽 ⏬`）**允许出现在 i18n 字符串里**——它们是产品视觉语言。替代防误改的机制：
-1. PR review 阶段对比 `i18n/zh-CN.ts` 与 `i18n/en.ts`，断言每对 key 的 value 包含的 emoji 集合相同（locale 间 emoji 一致性 lint，build-time 自动跑）。
-2. 翻译指南文档明确写 "emoji 不要替换 / 删除"，新增 locale 时贴这条 review notice。
-
-（文档或测试 fixture 里可以出现 hashtag 示例；应用运行时不要把这些示例当成内置业务知识。）
-
-### 9.3 切语言
-
-监听 Obsidian 自身的 locale 变化（`workspace.on("css-change")` 是粗粒度可用入口；或定期对比 `getLocale()`）。变化时**不复用 `cache.changed`**——cache.changed 的语义是"vault 文件解析结果变了"，切语言时文件没动，复用会让 status-bar / 后续断言误判数据底数变化。
-
-**正确做法**：plugin 内部维护一个独立的 `i18n` EventEmitter，触发 `i18n.emit("locale-changed", newLocale)`：
-
-- view 订阅 `i18n.locale-changed` → 整体 re-render（不重读 cache）
-- status-bar 订阅 `i18n.locale-changed` → 重渲染文字（不重读 cache）
-- `t(key)` 即时返回新 locale 字符串
-
-**绝不**为切语言重扫 vault（缓存里 ParsedTask 不依赖 locale）。
-
-### 9.4 应用层不硬编码 tag / 字段名（US-108 / US-301）
-
-- tag 是普通用户数据，来自 markdown 现状。应用不提供单独的 tag 分类设置，也不内置 `#1象限`、`#now` 这类业务分类。
-- query preset 切换、tag 筛选、时间筛选、状态筛选都用自绘 button + popover，不使用原生 select / 原生 multiple select。tag 筛选用当前候选集合里实际存在的合法 tag 生成“标签”按钮 + popover（搜索框 + 自绘 checkbox 行）；按钮自己显示选中摘要（首个 tag + `+N`），不在工具条旁边额外铺 selected chips。时间筛选存为 `QueryFilters.time = { scheduled?, deadline?, completed?, abandoned?, created? }`，不再存在无语义 `date` 字段。顶栏直接显示 `scheduled`（排期）范围 popover；`deadline / completed / created` 进入“更多时间”，第一层只显示字段行和当前摘要，第二层复用同一套月历范围选择器。排期筛选不得 fallback 到 `📅 deadline` / `✅ completed` / `➕ created`，`deadline` 的 `overdue / next-7-days` 是 deadline 自己的 token，不进入 scheduled。状态筛选是固定枚举 popover，触发按钮的“状态”和选项里的“全部”分开文案；状态值兼容旧的单值字符串，但新保存的待办 / 完成 / 放弃多选写成状态数组，`all` 表示不按状态过滤。常用 tag / time / 状态 / 搜索组合通过“保存为 query tab”新建 preset，通过“更新”覆盖当前 preset。筛选控件变化不清空当前 preset id，只有用户选择“无过滤”才清空；空筛选集合不能保存或更新成 preset。
-- 右键菜单只提供通用 tag 编辑能力：追加 / 移除 markdown 里的普通 tag，不做互斥分组替换。
-- 未排期视图不按内置分组渲染；排序按 US-104，用户要看某类 tag 时通过筛选或保存 query tab 进入。query preset 不写入独立“分组”条件。
-- "时长"字段名同理：summary / 卡片 meta 行从用户配置的字段名读取；`estimate` / `actual` 只能作为默认 preset 示例，不是业务分支。
-
-> 实现细节都在 markdown 解析结果 + query preset DSL + filterTasks/computeStats 中，没有任何 `if (tag === "#1象限")` 的特判路径。CI 可以 grep 拦截业务路径中的示例 tag / 示例 inline-field 字面；写在文档示例、测试 fixture、parser 字段名常量、设置默认值里允许，写在视图特殊分支里禁止。
-
----
-
-## 10. 视觉变量（与硬约束 #7 对齐）
-
-`styles.css` 内**禁止常量颜色**。CI lint：`grep -E '#[0-9a-fA-F]{3,8}' styles.css` → 命中 fail（除非在白名单：黑/白/transparent）。
-
-允许的来源：
-
-- `--background-primary / --background-secondary / --background-secondary-alt`
-- `--background-modifier-border / --background-modifier-hover`
+- `--background-primary` / `--background-secondary` / `--background-secondary-alt`
+- `--background-modifier-border` / `--background-modifier-hover`
 - `--interactive-accent`
-- `--color-red / --color-yellow / --color-green`
-- `--text-normal / --text-muted / --text-faint`
-- `--shadow-s / --shadow-l`
+- `--color-red` / `--color-yellow` / `--color-green`
+- `--text-normal` / `--text-muted` / `--text-faint`
+- `--shadow-s` / `--shadow-l`
 
-TS 内**禁止**写 `style.color = "#xxx"` 等 inline style 颜色。同 lint 规则。
+TS 不写 inline 常量颜色。动画时长通过 CSS custom properties 管理，统一响应 `prefers-reduced-motion`。
 
-**动画时长**统一通过 CSS custom property 定义（`--tc-anim-fast: 80ms`、`--tc-anim-card-fade: 100ms` 等），并在 `@media (prefers-reduced-motion: reduce)` 块内整体覆盖到 ≤ 50ms（UX §11.2）。**保留状态变化**——只缩短过渡时长，不取消视觉反馈。所有需要动画的 CSS class 都引用这些 var，**不**在 inline style / TS 里写 `transition: ...`。
+## 13. 测试策略
 
----
+### 13.1 单元测试
 
-## 11. 拖拽 dwell（与硬约束 #8 对齐）
+必须覆盖纯逻辑：
 
-`view/dnd.ts`：
+- parser：Obsidian Tasks 字段、tag、inline field、callout、空标题任务忽略。
+- writer：字节级保留、emoji date、checkbox、inline field、tag、嵌套 plan、undo ops。
+- task-tree：继承、父终态、独立日期子任务、顶层去重。
+- query：filter、date token、view projection、summary、matrix bucket。
+- dates：中英自然语言日期、周起始日、ISO 写回。
+- cli formatter：ok / unchanged / before-after / error code。
+- i18n：用户字面不翻译。
 
-```ts
-class TabDwellTracker {
-  private rafId: number | null = null;
-  private startTs: number | null = null;
-  private targetTab: TabKey | null = null;
+### 13.2 集成测试
 
-  update(hoveredTabHead: TabKey | null) {
-    if (hoveredTabHead !== this.targetTab) this.reset();
-    this.targetTab = hoveredTabHead;
-    if (hoveredTabHead && this.startTs === null) {
-      this.startTs = performance.now();
-      this.tick();
-    }
-  }
-  private tick = () => {
-    if (this.startTs === null || this.targetTab === null) return;
-    const elapsed = performance.now() - this.startTs;
-    this.renderProgress(elapsed / 600);
-    if (elapsed >= 600) { this.commitTabSwitch(this.targetTab); this.reset(); return; }
-    this.rafId = requestAnimationFrame(this.tick);
-  };
-  reset() {
-    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
-    this.rafId = null; this.startTs = null;
-  }
-}
-```
+使用 fake App / fake Vault 覆盖：
 
-**禁止**用 `setTimeout(fn, 600)`。`setTimeout` 在 main thread 卡顿时漂移，`performance.now()` 在 rAF 里测才准（UX §6.1）。
+- cache ensureAll 跳过无任务文件。
+- 单文件 invalidate 只重解析目标文件。
+- 写动作后 cache changed 时序。
+- Quick Add Daily Notes guard。
+- QueryPresetService GUI / CLI 共用 CRUD。
+- 跨文件 nest 部分失败和 undo。
+- path ref 不触发 ensureAll；hash disambiguation 可触发 ensureAll。
 
----
+### 13.3 E2E
 
-## 12. 不变量速查（给改代码的 agent 用）
+E2E 覆盖 UX 主路径：
 
-复刻这 11 条到每个 PR 的 description 里，逐条 check：
+- Query Tab CRUD、更多、隐藏、恢复、默认 tab。
+- Query 编辑器可视化 / DSL 往返。
+- 今日三组、改到明天、空状态。
+- Week / Month 未排期 tray 改期与清空。
+- List / Matrix 配置渲染。
+- 源 Markdown 编辑层定位、编辑、保存、刷新。
+- Quick Add 成功 / Daily Notes 失败保留输入。
+- 桌面拖拽改期、放弃、嵌套、非法目标、跨 tab dwell、undo。
+- 移动端 week row、month bottom sheet、swipe、长按 action sheet。
+- CLI task 与 query 动词。
+- i18n 热切换。
 
-- [ ] `parseVaultTasks(app)` 与 `app.vault.getMarkdownFiles()` 仅允许在 `cache.ts` 内部出现；其他模块禁止。
-- [ ] 没有新代码订阅 `metadataCache.on("resolved")`。
-- [ ] 写动词的入口没有 `await this.allTasks()` 调用。
-- [ ] 未识别 emoji / inline field / 优先级符号 / block anchor 在 mutate 后字节级保留（diff 测试覆盖）。
-- [ ] CLI 错误统一两行：`error <code>\n    <message>`，code 在固定集合内、恒英文；message 跟随 locale。
-- [ ] 当 GUI 与 CLI 同时需要任务树 traversal/sort 时，走同一份共享纯函数；渲染层（box-drawing 文本 vs DOM 嵌套）按 surface 各自适配。
-- [ ] 颜色仅来自 Obsidian CSS 变量，不出现 `#xxx` / `rgb(...)`。
-- [ ] 拖拽 dwell 用 rAF + `performance.now()`，不用 `setTimeout(600)`。
-- [ ] Undo 应用前对**被撤销的那几行**做内容比对，发现外部改写则中止撤销并 notify（2026-04-25 修订：不再用 mtime 校验，详 §6.2）。
-- [ ] 视图 / 业务路径里**没有**硬编码的 tag / inline-field 字面（`#1象限`、`estimate` 等只在 settings 默认值 / 测试 fixture / parser 字段名常量里出现）。
-- [ ] 日期写回文件恒 ISO `YYYY-MM-DD`；显示走 locale 格式化。
-- [ ] view 中父子任务查找走 `_taskIndex.get()`（O(1)），不走 `this.tasks.find()`（O(n)）（§7.3）。
-- [ ] 搜索输入 debounce ≥100ms；`Array.from(dt.types).includes()` 禁止，用 `dt.types.contains()`（§7.3）。
-- [ ] CSS 中 `transition: all` 禁止；卡片有 `touch-action: pan-y`；列表容器有 `overscroll-behavior: contain`（§7.3）。
+E2E 等待 cache 刷新时使用 `data-test-cache-version`，不使用固定 sleep。
+
+## 14. 发布与 CI
+
+发版要求来自 US-601~605：
+
+- 严格 semver tag，不带 `v`，不带 pre-release。
+- pre-flight gate：typecheck、lint、unit test、e2e。
+- 每次发版更新 `versions.json`。
+- Release body 从 PR / issue 标题按 conventional 前缀分组生成，可手动覆写。
+- Release asset 挂 `main.js`、`manifest.json`、`styles.css`；禁止 build 产物 commit 回 main。
+
+CI 额外建议检查：
+
+- 非 cache 模块不直接 `getMarkdownFiles()` 全量扫。
+- 无 `metadataCache.on("resolved")` 新订阅。
+- 视图 / 业务路径无硬编码示例 tag 或方法论字面。
+- CSS 无硬编码颜色、无 `transition: all`。
+- i18n 字符串不包含示例 hashtag / inline field 语法。
+
+## 15. 实现不变量清单
+
+每次实现或重构至少检查：
+
+- [ ] Markdown 任务格式兼容 Obsidian Tasks 字段。
+- [ ] 空标题任务不进入 Task Center。
+- [ ] 未识别 token 字节级保留。
+- [ ] Query filters / view / summary 共用同一 DSL。
+- [ ] GUI Query 编辑器与 CLI Query 动词共用 schema 与校验。
+- [ ] 没有独立持久化 current query。
+- [ ] View 没有硬编码 TODO / 今日 / 未排期等业务分支；这些来自 QueryPreset。
+- [ ] 未排期是 `time.scheduled is empty`，不是任务池。
+- [ ] Week / Month tray 是 view 附加区，不污染主日期区集合。
+- [ ] GUI / CLI 嵌套语义一致。
+- [ ] 移动端不暴露拖拽 / hover / 快捷键。
+- [ ] Daily Notes 不可用时不写 fallback。
+- [ ] CLI error code 恒英文。
+- [ ] 日期写回恒 ISO。
+- [ ] Enter 提交守卫 IME composition。
+- [ ] 所有写路径走 `vault.process`。
+- [ ] 读路径走 TaskCache，不直接扫 vault。

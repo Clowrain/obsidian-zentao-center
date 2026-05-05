@@ -113,6 +113,24 @@ crabbox run -- pnpm run test:e2e
 
 默认配置在 `.crabbox.yaml`，预热 workflow 在 `.github/workflows/blacksmith-testbox.yml`。如果你的 Blacksmith 账号需要显式 org，先 `export CRABBOX_BLACKSMITH_ORG=<your-org>` 再执行 `crabbox warmup`。
 
+## 开发
+
+```bash
+pnpm install --frozen-lockfile  # 安装依赖
+pnpm run dev                     # 监听并自动重新构建
+pnpm run build                   # 生产构建
+pnpm run typecheck               # TypeScript 类型检查
+pnpm run lint                    # ESLint（仅 src）
+pnpm run test:unit               # 408 条单元测试（parser、writer、CLI、cache、query、i18n 等）
+pnpm run test:e2e                # WDIO/Obsidian e2e（需要 Obsidian + WebDriverIO）
+```
+
+每次提交前的 preflight gate：
+
+```bash
+pnpm run typecheck && pnpm run lint && pnpm run test:unit && pnpm run build
+```
+
 ## License
 
 MIT.
