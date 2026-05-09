@@ -11,9 +11,10 @@
 
 import type { EffectiveTask } from "../task-tree";
 import type {
+  QueryPresetMatrixBucket,
   QueryPresetViewConfig,
 } from "../types";
-import { applyQueryFilters } from "./filter";
+import { applyQueryFilters, queryFilterHasActiveConditions } from "./filter";
 import { startOfWeek, addDays, startOfMonth, endOfMonth, daysBetween, todayISO } from "../dates";
 
 // ── View model types ──
@@ -238,11 +239,12 @@ function projectWeek(
   }
 
   const mainAreaIds = new Set<string>();
+  const daysByDate = new Map(days.map((day) => [day.date, day]));
 
   const sorted = sortTasks(tasks, view.orderBy);
   for (const task of sorted) {
     if (task.effectiveScheduled) {
-      const dayCol = days.find((d) => d.date === task.effectiveScheduled);
+      const dayCol = daysByDate.get(task.effectiveScheduled);
       if (dayCol) {
         dayCol.tasks.push(task);
         mainAreaIds.add(task.id);
@@ -282,11 +284,12 @@ function projectMonth(
   }
 
   const mainAreaIds = new Set<string>();
+  const cellsByDate = new Map(cells.map((cell) => [cell.date, cell]));
 
   const sorted = sortTasks(tasks, view.orderBy);
   for (const task of sorted) {
     if (task.effectiveScheduled) {
-      const cell = cells.find((c) => c.date === task.effectiveScheduled);
+      const cell = cellsByDate.get(task.effectiveScheduled);
       if (cell) {
         cell.tasks.push(task);
         mainAreaIds.add(task.id);
@@ -334,19 +337,22 @@ function projectMatrix(
 
   // Build the 2D cell grid: rows (y) × cols (x)
   const cells: MatrixCellModel[] = [];
+  const xMatches = new Map<string, Set<string>>();
+  const yMatches = new Map<string, Set<string>>();
+
+  for (const bucket of xBuckets) {
+    xMatches.set(bucket.id, matchingTaskIds(tasks, bucket.when, weekStartsOn));
+  }
+  for (const bucket of yBuckets) {
+    yMatches.set(bucket.id, matchingTaskIds(tasks, bucket.when, weekStartsOn));
+  }
 
   for (const yBucket of yBuckets) {
     for (const xBucket of xBuckets) {
       // A task must match BOTH the X bucket AND Y bucket conditions.
-      const cellTasks = tasks.filter((task) => {
-        const xMatch = xBucket.when && Object.keys(xBucket.when).length > 0
-          ? applyQueryFilters([task], xBucket.when, weekStartsOn).length > 0
-          : true;
-        const yMatch = yBucket.when && Object.keys(yBucket.when).length > 0
-          ? applyQueryFilters([task], yBucket.when, weekStartsOn).length > 0
-          : true;
-        return xMatch && yMatch;
-      });
+      const xSet = xMatches.get(xBucket.id)!;
+      const ySet = yMatches.get(yBucket.id)!;
+      const cellTasks = tasks.filter((task) => xSet.has(task.id) && ySet.has(task.id));
 
       cells.push({
         rowId: yBucket.id,
@@ -444,4 +450,17 @@ export function applyViewProjection(
     default:
       return projectList(tasks, view);
   }
+}
+
+function matchingTaskIds(
+  tasks: EffectiveTask[],
+  filters: QueryPresetMatrixBucket["when"],
+  weekStartsOn: 0 | 1,
+): Set<string> {
+  if (!queryFilterHasActiveConditions(filters)) {
+    return new Set(tasks.map((task) => task.id));
+  }
+  return new Set(
+    applyQueryFilters(tasks, filters, weekStartsOn).map((task) => task.id),
+  );
 }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.4 — 2026-05-09
+
+- Performance: reduce repeated QueryPreset matrix bucket filtering and speed up week/month date placement.
+
 ## 0.8.3 — 2026-05-08
 
 - CLI: add `query-run` to execute a Query Tab preset and render list/week/month/matrix output, with optional temporary view override.

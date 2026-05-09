@@ -64,6 +64,29 @@ function normalizeStatusFilter(
   return normalizeSavedViewStatus(status);
 }
 
+interface NormalizedQueryFilters {
+  searchQ: string;
+  tagList: string[];
+  statusFilter: "all" | string[];
+  time: SavedViewTimeFilters;
+  hasTime: boolean;
+}
+
+function normalizeQueryFilters(
+  filters: QueryPresetFilters,
+): NormalizedQueryFilters {
+  const time = filters.time ?? {};
+  return {
+    searchQ: (filters.search ?? "").trim().toLowerCase(),
+    tagList: normalizeTags(filters.tags),
+    statusFilter: normalizeStatusFilter(filters.status),
+    time,
+    hasTime: Object.values(time).some(
+      (v) => typeof v === "string" && v.trim(),
+    ),
+  };
+}
+
 // ── Individual filter predicates ──
 
 function matchesSearch(task: EffectiveTask, q: string): boolean {
@@ -135,6 +158,43 @@ function matchesTime(
 
 // ── Main entry point ──
 
+export function queryFilterHasActiveConditions(
+  filters: QueryPresetFilters,
+): boolean {
+  const normalized = normalizeQueryFilters(filters);
+  return normalizedQueryFilterHasActiveConditions(normalized);
+}
+
+function normalizedQueryFilterHasActiveConditions(
+  normalized: NormalizedQueryFilters,
+): boolean {
+  return Boolean(
+    normalized.searchQ ||
+      normalized.tagList.length > 0 ||
+      normalized.statusFilter !== "all" ||
+      normalized.hasTime,
+  );
+}
+
+function taskMatchesNormalizedQueryFilters(
+  task: EffectiveTask,
+  normalized: NormalizedQueryFilters,
+  weekStartsOn: 0 | 1,
+  today: string,
+): boolean {
+  if (normalized.searchQ && !matchesSearch(task, normalized.searchQ))
+    return false;
+  if (normalized.tagList.length > 0 && !matchesTags(task, normalized.tagList))
+    return false;
+  if (!matchesStatus(task, normalized.statusFilter)) return false;
+  if (
+    normalized.hasTime &&
+    !matchesTime(task, normalized.time, weekStartsOn, today)
+  )
+    return false;
+  return true;
+}
+
 /**
  * Apply QueryPreset filters to an array of EffectiveTask.
  *
@@ -154,23 +214,9 @@ export function applyQueryFilters(
   today: string = todayISO(),
 ): EffectiveTask[] {
   // Quick-pass: no active filters
-  const searchQ = (filters.search ?? "").trim().toLowerCase();
-  const tagList = normalizeTags(filters.tags);
-  const statusFilter = normalizeStatusFilter(filters.status);
-  const hasTime = Object.values(filters.time ?? {}).some(
-    (v) => typeof v === "string" && v.trim(),
+  const normalized = normalizeQueryFilters(filters);
+  if (!normalizedQueryFilterHasActiveConditions(normalized)) return tasks;
+  return tasks.filter((task) =>
+    taskMatchesNormalizedQueryFilters(task, normalized, weekStartsOn, today),
   );
-
-  if (!searchQ && tagList.length === 0 && statusFilter === "all" && !hasTime) {
-    return tasks;
-  }
-
-  return tasks.filter((task) => {
-    if (searchQ && !matchesSearch(task, searchQ)) return false;
-    if (tagList.length > 0 && !matchesTags(task, tagList)) return false;
-    if (!matchesStatus(task, statusFilter)) return false;
-    if (hasTime && !matchesTime(task, filters.time ?? {}, weekStartsOn, today))
-      return false;
-    return true;
-  });
 }
