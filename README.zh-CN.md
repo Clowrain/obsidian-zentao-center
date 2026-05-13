@@ -13,9 +13,9 @@ Task Center 是一个 Obsidian 插件：在 Obsidian Tasks markdown 之上，增
 - [-] 放弃旧方案 ❌ 2026-04-28
 ```
 
-[周视图拖拽演示](https://github.com/CorrectRoadH/obsidian-task-center/raw/refs/heads/main/screenshots/week-drag.mp4)
+![周视图拖拽演示](screenshots/week-drag.gif)
 
-[月视图拖拽演示](https://github.com/CorrectRoadH/obsidian-task-center/raw/refs/heads/main/screenshots/month-drag.mp4)
+![月视图拖拽演示](screenshots/month-drag.gif)
 
 ![Month view](screenshots/month.png)
 
@@ -114,24 +114,6 @@ crabbox run -- pnpm run test:e2e
 ```
 
 默认配置在 `.crabbox.yaml`，预热 workflow 在 `.github/workflows/blacksmith-testbox.yml`。如果你的 Blacksmith 账号需要显式 org，先 `export CRABBOX_BLACKSMITH_ORG=<your-org>` 再执行 `crabbox warmup`。
-
-## 开发
-
-```bash
-pnpm install --frozen-lockfile  # 安装依赖
-pnpm run dev                     # 监听并自动重新构建
-pnpm run build                   # 生产构建
-pnpm run typecheck               # TypeScript 类型检查
-pnpm run lint                    # ESLint（仅 src）
-pnpm run test:unit               # 408 条单元测试（parser、writer、CLI、cache、query、i18n 等）
-pnpm run test:e2e                # WDIO/Obsidian e2e（需要 Obsidian + WebDriverIO）
-```
-
-每次提交前的 preflight gate：
-
-```bash
-pnpm run typecheck && pnpm run lint && pnpm run test:unit && pnpm run build
-```
 
 ## License
 

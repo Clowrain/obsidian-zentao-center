@@ -13,9 +13,9 @@ It does not create a new database or task format. Your source of truth stays in 
 - [-] Retired idea ❌ 2026-04-28
 ```
 
-[Week drag demo](https://github.com/CorrectRoadH/obsidian-task-center/raw/refs/heads/main/screenshots/week-drag.mp4)
+![Week drag demo](screenshots/week-drag.gif)
 
-[Month drag demo](https://github.com/CorrectRoadH/obsidian-task-center/raw/refs/heads/main/screenshots/month-drag.mp4)
+![Month drag demo](screenshots/month-drag.gif)
 
 ![Month view](screenshots/month.png)
 
@@ -144,24 +144,6 @@ The default repo config lives in `.crabbox.yaml` and points at `.github/workflow
 | Open Task Center on startup | Off | Whether the board opens with the vault |
 | Stamp created date | On | Whether new tasks get `➕ YYYY-MM-DD` |
 | Force mobile layout | Off | Use the phone layout on wider screens |
-
-## Development
-
-```bash
-pnpm install --frozen-lockfile  # install dependencies
-pnpm run dev                     # watch & rebuild on change
-pnpm run build                   # production build
-pnpm run typecheck               # TypeScript type checking
-pnpm run lint                    # ESLint (src only)
-pnpm run test:unit               # 408 unit tests (parser, writer, CLI, cache, query, i18n, …)
-pnpm run test:e2e                # WDIO/Obsidian e2e (requires Obsidian + WebDriverIO)
-```
-
-Preflight gate before every commit:
-
-```bash
-pnpm run typecheck && pnpm run lint && pnpm run test:unit && pnpm run build
-```
 
 ## License
 
