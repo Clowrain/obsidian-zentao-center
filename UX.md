@@ -544,6 +544,8 @@ Obsidian Tasks：
 
 CLI 注册到 Obsidian CLI，不提供独立二进制。（US-201）
 
+`obsidian task-center` 是帮助入口，输出可直接复制的命令索引，包含任务读写、Query Tab 管理和 `npx skills add CorrectRoadH/obsidian-task-center`。（US-201a / US-215）
+
 ### 16.1 任务读写输出
 
 - `list` 每行第一列是稳定 id，例如 `path:L42` 或 hash。（US-202）

@@ -326,6 +326,13 @@ export default class TaskCenterPlugin extends Plugin {
   // see USER_STORIES.md
   private registerAllCliHandlers() {
     this.registerCliHandler(
+      "task-center",
+      "Show Task Center CLI help",
+      {},
+      () => this.cliHelp(),
+    );
+
+    this.registerCliHandler(
       "task-center:list",
       "List tasks with filters",
       {
@@ -638,6 +645,46 @@ export default class TaskCenterPlugin extends Plugin {
   //
   // Each handler converts native Obsidian CLI args → TaskCenterApi call →
   // returns human-readable text (greppable, first column always an id).
+
+  private cliHelp(): string {
+    return [
+      "Task Center CLI",
+      "",
+      "Task verbs:",
+      "  task-center:list scheduled=today|tomorrow|unscheduled|week|next-week|month|next-month|YYYY-MM-DD|FROM..TO [status=todo|done|dropped] [tag=#work] [format=json]",
+      "  task-center:show ref=<task-id>",
+      "  task-center:add text=<text> [to=<path>] [tag=#work,#home] [scheduled=YYYY-MM-DD] [deadline=YYYY-MM-DD] [estimate=30m] [parent=<task-id>]",
+      "  task-center:schedule ref=<task-id> date=<YYYY-MM-DD|null>",
+      "  task-center:deadline ref=<task-id> date=<YYYY-MM-DD|null>",
+      "  task-center:done ref=<task-id> [at=YYYY-MM-DD]",
+      "  task-center:undone ref=<task-id>",
+      "  task-center:abandon ref=<task-id>",
+      "  task-center:actual ref=<task-id> minutes=<30m|+15m>",
+      "  task-center:estimate ref=<task-id> minutes=<30m|null>",
+      "  task-center:tag ref=<task-id> tag=<#tag> [remove]",
+      "  task-center:nest ref=<task-id> under=<parent-task-id>",
+      "  task-center:rename ref=<task-id> title=<new-title>",
+      "  task-center:stats [days=7] [group=象限] [format=json]",
+      "  task-center:brief [today=YYYY-MM-DD] [format=json]",
+      "  task-center:review [days=7] [format=json]",
+      "",
+      "Query Tab verbs:",
+      "  task-center:query-list [hidden=true] [format=json]",
+      "  task-center:query-show id=<tab-id>",
+      "  task-center:query-run id=<tab-id> [view=list|week|month|matrix] [anchor=YYYY-MM-DD] [format=json]",
+      "  task-center:query-create dsl=<json>",
+      "  task-center:query-save dsl=<json>",
+      "  task-center:query-update id=<tab-id> dsl=<json>",
+      "  task-center:query-rename id=<tab-id> name=<name>",
+      "  task-center:query-copy id=<tab-id> [name=<name>]",
+      "  task-center:query-hide id=<tab-id> hidden=true|false",
+      "  task-center:query-delete id=<tab-id>",
+      "  task-center:query-set-default id=<tab-id|null>",
+      "",
+      "Companion AI skill:",
+      "  npx skills add CorrectRoadH/obsidian-task-center",
+    ].join("\n");
+  }
 
   // US-205: `list` defaults to human-readable text — `format=json` is opt-in,
   //          never the default. Same convention applies to `stats` below.

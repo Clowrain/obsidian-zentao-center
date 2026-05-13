@@ -7,6 +7,12 @@ description: Read and write tasks in an Obsidian vault through the Task Center p
 
 This skill is the AI interface to the obsidian-task-center plugin. The plugin registers its verbs to Obsidian's native CLI (1.12.2+), so calls go `obsidian task-center:<verb> key=value …`.
 
+For a full command index, run:
+
+```bash
+obsidian task-center
+```
+
 Data stays inline markdown. Syntax:
 
 ```
@@ -51,6 +57,8 @@ obsidian plugins:enabled | grep task-center
 ```
 
 If missing, ask the user to enable it. If Obsidian isn't running, the CLI will auto-launch (first call incurs latency).
+
+If `obsidian task-center` works but a specific verb is missing, the vault is running an older plugin build. Ask the user to update/reload Task Center before using that verb.
 
 ## Verbs
 

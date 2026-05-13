@@ -104,6 +104,7 @@ Estimate and actual-time summaries use inline fields such as `[estimate:: 90m]`,
 Task Center registers verbs with Obsidian's native CLI. There is no separate wrapper script.
 
 ```bash
+obsidian task-center
 obsidian task-center:list scheduled=today
 obsidian task-center:list scheduled=unscheduled tag='#work'
 obsidian task-center:show ref=Tasks/Inbox.md:L42
@@ -112,9 +113,12 @@ obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=2026-05-16
 obsidian task-center:done ref=Tasks/Inbox.md:L42 at=2026-04-28
 obsidian task-center:review days=7
 obsidian task-center:review days=7 format=json
+obsidian task-center:query-list
+obsidian task-center:query-run id=preset-today view=week
+obsidian task-center:query-set-default id=preset-week
 ```
 
-CLI output is greppable and agent-friendly: list rows start with stable ids, writes are idempotent, and mutations print `before` / `after` lines.
+CLI output is greppable and agent-friendly: list rows start with stable ids, writes are idempotent, mutations print `before` / `after` lines, and Query Tab commands can list, run, create, update, rename, copy, hide, delete, and set defaults by stable id.
 
 To install the companion AI skill:
 

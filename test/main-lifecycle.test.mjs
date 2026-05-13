@@ -1105,8 +1105,40 @@ test("query-create rejects invalid QueryPreset DSL (non-object root) with invali
 
 // ── End CLI query-create tests ──
 
-// Verify query-create command is registered in CLI handlers
-test("plugin onload registers task-center:query-create as a CLI handler", async () => {
+const EXPECTED_CLI_HANDLERS = [
+  "task-center",
+  "task-center:list",
+  "task-center:show",
+  "task-center:stats",
+  "task-center:brief",
+  "task-center:review",
+  "task-center:schedule",
+  "task-center:deadline",
+  "task-center:actual",
+  "task-center:estimate",
+  "task-center:done",
+  "task-center:undone",
+  "task-center:abandon",
+  "task-center:drop",
+  "task-center:add",
+  "task-center:tag",
+  "task-center:nest",
+  "task-center:rename",
+  "task-center:query-list",
+  "task-center:query-show",
+  "task-center:query-run",
+  "task-center:query-save",
+  "task-center:query-create",
+  "task-center:query-update",
+  "task-center:query-rename",
+  "task-center:query-copy",
+  "task-center:query-hide",
+  "task-center:query-delete",
+  "task-center:query-set-default",
+];
+
+// Verify the full CLI surface is registered in Obsidian native CLI handlers.
+test("plugin onload registers the full Task Center CLI surface", async () => {
   await compile();
   const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}-${Math.random()}`);
   const app = makeAppWithExistingTaskCenterView();
@@ -1114,10 +1146,27 @@ test("plugin onload registers task-center:query-create as a CLI handler", async 
   const plugin = new TaskCenterPlugin(app);
   await plugin.onload();
 
-  assert.ok(app.__cliHandlers.has("task-center:query-create"), "query-create should be registered as a CLI handler");
-  const handler = app.__cliHandlers.get("task-center:query-create");
-  assert.ok(handler, "handler should exist");
-  assert.equal(typeof handler.handler, "function", "handler should be a function");
+  assert.deepEqual([...app.__cliHandlers.keys()].sort(), [...EXPECTED_CLI_HANDLERS].sort());
+  for (const command of EXPECTED_CLI_HANDLERS) {
+    const handler = app.__cliHandlers.get(command);
+    assert.ok(handler, `${command} handler should exist`);
+    assert.equal(typeof handler.handler, "function", `${command} handler should be a function`);
+  }
+});
+
+test("task-center root CLI handler prints help with AI skill install command", async () => {
+  await compile();
+  const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}-${Math.random()}`);
+  const app = makeAppWithExistingTaskCenterView();
+  app.__viewCreators.clear();
+  const plugin = new TaskCenterPlugin(app);
+  await plugin.onload();
+
+  const help = await app.__cliHandlers.get("task-center").handler({});
+  assert.match(help, /Task Center CLI/);
+  assert.match(help, /task-center:query-list/);
+  assert.match(help, /task-center:query-set-default/);
+  assert.match(help, /npx skills add CorrectRoadH\/obsidian-task-center/);
 });
 
 // VAL-CLI-006: builtins cannot be permanently deleted via CLI

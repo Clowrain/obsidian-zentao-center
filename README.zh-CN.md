@@ -84,6 +84,7 @@ Task Center 保留 Obsidian Tasks 元数据，例如 `⏳`、`📅`、`🛫`、`
 Task Center 注册到 Obsidian 原生 CLI，不提供额外 wrapper 脚本。
 
 ```bash
+obsidian task-center
 obsidian task-center:list scheduled=today
 obsidian task-center:list scheduled=unscheduled tag='#work'
 obsidian task-center:show ref=Tasks/Inbox.md:L42
@@ -92,9 +93,12 @@ obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=2026-05-16
 obsidian task-center:done ref=Tasks/Inbox.md:L42 at=2026-04-28
 obsidian task-center:review days=7
 obsidian task-center:review days=7 format=json
+obsidian task-center:query-list
+obsidian task-center:query-run id=preset-today view=week
+obsidian task-center:query-set-default id=preset-week
 ```
 
-CLI 输出适合人和 agent 读：列表行有稳定 id，写操作幂等，变更命令输出 `before` / `after`。
+CLI 输出适合人和 agent 读：列表行有稳定 id，写操作幂等，变更命令输出 `before` / `after`；Query Tab 命令可以按稳定 id 列出、运行、新建、更新、重命名、复制、隐藏、删除和设默认。
 
 安装配套 AI skill：
 

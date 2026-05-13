@@ -619,6 +619,8 @@ E2E 和 UI 自动化依赖稳定 `data-*`，不依赖 CSS 类名或文案：
 
 CLI 注册到 Obsidian CLI 命名空间，不提供独立二进制。（US-201）
 
+根命令 `task-center` 只输出静态帮助文本，不读写 vault，不初始化额外状态。帮助文本必须覆盖任务动词、Query Tab 动词和 AI skill 安装命令。（US-201a / US-215）
+
 ### 8.1 Task 动词
 
 Task 动词薄封装 `TaskCenterApi`：

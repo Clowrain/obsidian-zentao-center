@@ -782,6 +782,8 @@ npx skills add CorrectRoadH/obsidian-task-center
 
 `US-201` 注册命令到 Obsidian CLI，不另写独立 CLI。
 
+`US-201a` `obsidian task-center` 作为根帮助入口，列出任务读写、Query Tab 管理和 AI skill 安装命令，避免用户只输入 namespace 时得到 “Command not found”。
+
 `US-202` `list` 每行第一列是稳定 id，例如 `path:L42` 或 hash。
 
 `US-203` 写操作重复执行结果相同。对已完成任务再跑 `done` 返回 `ok … unchanged`。
