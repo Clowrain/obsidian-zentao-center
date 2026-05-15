@@ -1008,7 +1008,8 @@ export class TaskCenterView extends ItemView {
   private renderToolbar(parent: HTMLElement) {
     const bar = parent.createDiv({ cls: "bt-toolbar" });
     const mainRow = bar.createDiv({ cls: "bt-toolbar-row bt-toolbar-main" });
-    const subRow = isMobileMode() ? mainRow : bar.createDiv({ cls: "bt-toolbar-row bt-toolbar-sub" });
+    const mobileLayout = this.contentEl.dataset.mobileLayout === "true";
+    const subRow = mobileLayout ? mainRow : bar.createDiv({ cls: "bt-toolbar-row bt-toolbar-sub" });
 
     // Navigation arrows for week/month
     if (this.state.tab === "week" || this.state.tab === "month") {
@@ -1048,34 +1049,36 @@ export class TaskCenterView extends ItemView {
       });
     }
 
-    // US-109: title / tag search box. The matching impl in `getTextFilter`
-    // also searches across tags so users can type `#3象限` or part of a
-    // tag to narrow the board; CLI exposes the same filter via
-    // `task-center:list search=…`.
-    // see USER_STORIES.md
-    const search = mainRow.createEl("input", { type: "text", placeholder: tr("toolbar.filter") });
-    search.addClass("bt-search");
-    search.value = this.state.filter;
-    // §7.3: debounce search input to avoid full teardown+rebuild per keystroke
-    let searchTimer: number | null = null;
-    search.addEventListener("input", () => {
-      const val = search.value;
-      const caret = search.selectionStart;
-      if (searchTimer !== null) window.clearTimeout(searchTimer);
-      searchTimer = window.setTimeout(() => {
-        searchTimer = null;
-        this.state.filter = val;
-        this.render();
-        const el = this.contentEl.querySelector<HTMLInputElement>(".bt-search");
-        if (el) {
-          el.focus();
-          const pos = caret ?? el.value.length;
-          el.selectionStart = el.selectionEnd = pos;
-        }
-      }, 150);
-    });
+    if (!mobileLayout) {
+      // US-109: title / tag search box. The matching impl in `getTextFilter`
+      // also searches across tags so users can type `#3象限` or part of a
+      // tag to narrow the board; CLI exposes the same filter via
+      // `task-center:list search=…`.
+      // see USER_STORIES.md
+      const search = mainRow.createEl("input", { type: "text", placeholder: tr("toolbar.filter") });
+      search.addClass("bt-search");
+      search.value = this.state.filter;
+      // §7.3: debounce search input to avoid full teardown+rebuild per keystroke
+      let searchTimer: number | null = null;
+      search.addEventListener("input", () => {
+        const val = search.value;
+        const caret = search.selectionStart;
+        if (searchTimer !== null) window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => {
+          searchTimer = null;
+          this.state.filter = val;
+          this.render();
+          const el = this.contentEl.querySelector<HTMLInputElement>(".bt-search");
+          if (el) {
+            el.focus();
+            const pos = caret ?? el.value.length;
+            el.selectionStart = el.selectionEnd = pos;
+          }
+        }, 150);
+      });
+    }
 
-    if (isMobileMode()) {
+    if (mobileLayout) {
       const mobileFilters = mainRow.createEl("button", {
         text: tr("savedViews.editQuery"),
         cls: "bt-mobile-filter-btn",

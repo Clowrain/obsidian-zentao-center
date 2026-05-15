@@ -100,17 +100,21 @@ describe("Task Center — mobile filter UI (task #88)", function () {
     await $('[data-task-id="Tasks/Inbox.md:L1"]').waitForExist({ timeout: 5000 });
 
     await expect($(".task-center-view .bt-toolbar > [data-saved-views]")).not.toExist();
+    await expect($(".task-center-view .bt-toolbar .bt-search")).not.toExist();
     await expect($("[data-mobile-action='filters']")).toExist();
 
     const widthOk = await browser.execute(() => {
       const view = document.querySelector<HTMLElement>(".task-center-view");
+      const toolbar = document.querySelector<HTMLElement>(".task-center-view .bt-toolbar-main");
       const body = document.querySelector<HTMLElement>(".task-center-view .bt-body");
       const card = document.querySelector<HTMLElement>(".task-center-view [data-task-id='Tasks/Inbox.md:L1']");
-      if (!view || !body || !card) return false;
+      if (!view || !toolbar || !body || !card) return false;
       const viewWidth = view.getBoundingClientRect().width;
+      const toolbarWidth = toolbar.getBoundingClientRect().width;
       const bodyWidth = body.getBoundingClientRect().width;
       const cardWidth = card.getBoundingClientRect().width;
-      return bodyWidth >= viewWidth * 0.9 && cardWidth >= bodyWidth * 0.85;
+      const toolbarHasNoHorizontalOverflow = toolbar.scrollWidth <= Math.ceil(toolbarWidth) + 1;
+      return toolbarHasNoHorizontalOverflow && bodyWidth >= viewWidth * 0.9 && cardWidth >= bodyWidth * 0.85;
     });
     expect(widthOk).toBe(true);
 

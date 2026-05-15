@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Mobile: remove the desktop search box from the phone toolbar, keep Query controls in the bottom sheet, and prevent toolbar overflow from clipping the week view.
+
 ## 0.8.7 — 2026-05-13
 
 - CLI: add `obsidian task-center` as a root help command covering task verbs, Query Tab verbs, and the companion AI skill install command.

@@ -316,6 +316,8 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 
 `US-117` 筛选栏、view 选择与 query tab 要能长期使用。桌面可直接展示高频 Query 工具；移动端首屏只保留“编辑 Query”入口，并在 bottom sheet 中编辑搜索、标签、排期、更多时间、状态。入口不能误命名成“过滤 / 视图”。
 
+`US-117a` 移动端主界面不能出现横向溢出的桌面工具栏。搜索框、标签、排期、状态等密集控件必须收进“编辑 Query”bottom sheet；首屏 toolbar 只保留日期导航、编辑 Query 入口和必要的设置入口。周/月/list 内容区与卡片应占满可用宽度，不能因为 toolbar 横向滚动而让右侧内容被裁切。
+
 ## 8. View 故事
 
 ### 8.1 List View

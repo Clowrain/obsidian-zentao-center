@@ -1849,6 +1849,10 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 /* Status row (mirrors the desktop status bar widget) — mobile only. */
+.task-center-view[data-mobile-layout="true"] {
+  padding: 0 8px;
+}
+
 .task-center-view .bt-mobile-status {
   display: none;
 }
@@ -1915,15 +1919,19 @@
   }
   .task-center-view[data-mobile-layout="true"] .bt-toolbar-row {
     flex-wrap: nowrap;
-    overflow-x: auto;
+    overflow-x: clip;
     max-width: 100%;
-    -webkit-overflow-scrolling: touch;
+    min-width: 0;
+  }
+  .task-center-view[data-mobile-layout="true"] .bt-toolbar-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
   }
 
   .task-center-view[data-mobile-layout="true"] .bt-toolbar .bt-search {
-    flex: 1 1 120px;
-    min-width: 120px;
-    max-width: none;
+    display: none;
   }
 
   .task-center-view[data-mobile-layout="true"] .bt-toolbar > .bt-saved-views {
@@ -1932,6 +1940,46 @@
 
   .task-center-view[data-mobile-layout="true"] .bt-toolbar .bt-mobile-filter-btn {
     flex: 0 0 auto;
+    min-width: 0;
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-height: 44px;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-toolbar-utility {
+    margin-left: 0;
+    min-width: 0;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-gear {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-nav {
+    display: grid;
+    grid-template-columns: 36px minmax(56px, auto) 36px minmax(0, 1fr);
+    align-items: center;
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-nav button {
+    min-width: 36px;
+    min-height: 44px;
+    padding: 0 8px;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-nav-label {
+    min-width: 0;
+    margin-left: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .task-center-view[data-mobile-layout="true"] .bt-body {
@@ -2060,6 +2108,8 @@
   }
   .task-center-view[data-mobile-layout="true"] .bt-week-col {
     min-height: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
   /* Body collapsed by default; today and explicitly-expanded show it. */
   .task-center-view[data-mobile-layout="true"] .bt-week-col:not(.today):not(.expanded) .bt-week-list {

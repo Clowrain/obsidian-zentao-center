@@ -751,6 +751,8 @@ function shouldSubmitEnter(e: KeyboardEvent): boolean {
 - 父子查找使用 Map，不在 render 热路径中 `Array.find` 全表扫描。
 - DataTransfer types 用 `.contains()`，不 `Array.from(...).includes()`。
 - 移动端卡片设置 `touch-action: pan-y`。
+- 移动端首屏不挂载桌面搜索输入和筛选控件；Query 编辑 bottom sheet 复用同一套 filter controls，避免双份状态。
+- 移动端 toolbar、body、week row、card 的布局必须基于父容器宽度收缩，不依赖横向滚动承载主路径控件。
 - 列表容器设置 `overscroll-behavior: contain`。
 - CSS 禁止 `transition: all`。
 - reduced motion 下动画时长 ≤ 50ms 但保留状态变化。

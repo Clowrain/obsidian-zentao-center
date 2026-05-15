@@ -356,6 +356,7 @@ estimate/actual/deadline 等 meta
 - Esc、右上关闭、点击遮罩都关闭编辑层并回到原状态。（US-168e）
 - 编辑层内提供“在原文中打开/定位”入口，但这不是默认路径。（US-168h）
 - 移动端限制尺寸：内容区可滚动，高度有上限，避让软键盘。（US-168g）
+- 移动端首屏 toolbar 不展示搜索框或桌面筛选控件；这些控件统一进入“编辑 Query”bottom sheet。toolbar 自身不得横向滚动或裁切按钮文案，view body 和卡片应贴合可用宽度。（US-117 / US-117a）
 
 视觉验收必须证明它不是整屏 textarea / preview markdown 的开发者工具感，而是可用的 Obsidian-style 编辑体验。（US-168f）
 
