@@ -236,6 +236,15 @@ const EN = {
   "sheet.editTag": "Edit tag",
   "sheet.editSource": "Edit source",
   "sheet.editTagHint": "Enter a tag (e.g. #project, #next)",
+  "sheet.editTagCurrent": "Current tags",
+  "sheet.editTagAdd": "Add tag",
+  "sheet.editTagAddButton": "Add",
+  "sheet.editTagSuggestions": "Suggestions",
+  "sheet.editTagEmpty": "No tags yet",
+  "sheet.editTagNoSuggestions": "No suggestions",
+  "sheet.editTagRemove": "Remove {tag}",
+  "sheet.cancel": "Cancel",
+  "sheet.save": "Save",
 
   // task #43: date prompt hint line — bilingual EN baseline (the original
   // hard-coded string already mixed today/tomorrow with 明天/周六; we
@@ -569,6 +578,15 @@ const ZH: Partial<typeof EN> = {
   "sheet.editTag": "编辑 tag",
   "sheet.editSource": "编辑原文",
   "sheet.editTagHint": "输入 tag（例如 #项目、#下一步）",
+  "sheet.editTagCurrent": "当前 tag",
+  "sheet.editTagAdd": "添加 tag",
+  "sheet.editTagAddButton": "添加",
+  "sheet.editTagSuggestions": "候选 tag",
+  "sheet.editTagEmpty": "还没有 tag",
+  "sheet.editTagNoSuggestions": "暂无候选",
+  "sheet.editTagRemove": "移除 {tag}",
+  "sheet.cancel": "取消",
+  "sheet.save": "保存",
 
   // task #43: 日期弹窗提示
   "prompt.dateHint":

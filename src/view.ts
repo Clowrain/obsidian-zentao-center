@@ -1,9 +1,11 @@
 import {
   ItemView,
+  MarkdownView,
   WorkspaceLeaf,
   Menu,
   Notice,
   Platform,
+  TFile,
 } from "obsidian";
 import { ParsedTask, VIEW_TYPE_TASK_CENTER } from "./types";
 import { formatMinutes } from "./parser";
@@ -92,6 +94,10 @@ import type TaskCenterPlugin from "./main";
 const PRIMARY_TIME_FIELD: SavedViewTimeField = "scheduled";
 const SECONDARY_TIME_FIELDS: SavedViewTimeField[] = ["deadline", "completed", "created"];
 type FilterControlsRerender = () => void;
+type TagEditResult = {
+  add: string[];
+  remove: string[];
+};
 
 // `UndoOp` and `UndoEntry` re-exported from `./view/undo` (the canonical
 // definitions). Local re-export so existing usage in this file compiles.
@@ -123,6 +129,26 @@ function parseFilterTags(value: string): string[] {
   const out: string[] = [];
   for (const part of value.split(",")) {
     const tag = normalizeFilterTag(part);
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
+}
+
+function normalizeEditorTag(value: string): string | null {
+  const trimmed = value.trim().replace(/^#+/, "");
+  if (!trimmed) return null;
+  const token = trimmed.split(/[\s,，]+/)[0]?.trim();
+  if (!token) return null;
+  return `#${token}`;
+}
+
+function parseEditorTags(value: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of value.split(/[\s,，]+/)) {
+    const tag = normalizeEditorTag(part);
     if (!tag || seen.has(tag)) continue;
     seen.add(tag);
     out.push(tag);
@@ -342,6 +368,10 @@ export class TaskCenterView extends ItemView {
   private async openSourceEditShell(task: ParsedTask): Promise<void> {
     this.state.selectedTaskId = task.id;
     this.contentEl.focus();
+    if (isMobileMode()) {
+      await this.openNativeSourceEditor(task);
+      return;
+    }
     await openTaskSourceEditShell(this.app, this.leaf, task, {
       onSave: async () => {
         await this.waitForCacheUpdate([task.path], 2000);
@@ -350,6 +380,33 @@ export class TaskCenterView extends ItemView {
         this.render();
       },
     });
+  }
+
+  private async openNativeSourceEditor(task: ParsedTask): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(task.path);
+    if (!(file instanceof TFile)) {
+      new Notice(tr("notice.fileNotFound", { path: task.path }));
+      return;
+    }
+    try {
+      const leaf = this.app.workspace.getLeaf("tab");
+      await leaf.openFile(file, {
+        active: true,
+        eState: { line: task.line },
+      });
+      if (typeof leaf.loadIfDeferred === "function") await leaf.loadIfDeferred();
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView) || !view.editor) {
+        throw new Error("native MarkdownView editor missing");
+      }
+      const pos = { line: task.line, ch: 0 };
+      view.editor.setCursor(pos);
+      view.editor.scrollIntoView({ from: pos, to: pos }, true);
+      view.editor.focus();
+    } catch (err) {
+      new Notice(tr("sourceEdit.nativeFailed"));
+      console.error(err);
+    }
   }
 
   /**
@@ -2990,8 +3047,8 @@ export class TaskCenterView extends ItemView {
         });
         btn(tr("sheet.editTag"), async () => {
           // UX-mobile §8.1: edit tag opens a tag editor
-          const newTag = await this.openTagEditorForTask(t);
-          if (newTag !== null) await this.api.tag(t.id, newTag);
+          const edit = await this.openTagEditorForTask(t);
+          if (edit !== null) await this.applyTagEditResult(t, edit);
         });
         btn(tr("sheet.editSource"), () => this.openSourceEditShell(t));
         btn(tr("sheet.drop"), () => this.api.drop(t.id));
@@ -3064,8 +3121,8 @@ export class TaskCenterView extends ItemView {
           btn.addEventListener("click", () => { void run(fn); });
         };
         secondaryAction("tag", tr("sheet.editTag"), async () => {
-          const newTag = await this.openTagEditorForTask(t);
-          if (newTag !== null) await this.api.tag(t.id, newTag);
+          const edit = await this.openTagEditorForTask(t);
+          if (edit !== null) await this.applyTagEditResult(t, edit);
         });
         secondaryAction("nest", tr("sheet.nest"), async () => {
           const parentId = await this.openParentPickerForTask(t);
@@ -3243,41 +3300,143 @@ export class TaskCenterView extends ItemView {
     });
   }
 
+  private async applyTagEditResult(t: EffectiveTask, edit: TagEditResult): Promise<void> {
+    for (const tag of edit.remove) await this.api.tag(t.id, tag, true);
+    for (const tag of edit.add) await this.api.tag(t.id, tag);
+  }
+
   /**
-   * Opens a simple text input bottom sheet for editing a tag on a task.
-   * Returns the new tag string, or null if cancelled.
+   * Mobile tag management sheet. It edits the tag set as a diff and lets
+   * writer.ts keep Markdown mutation byte-local to the task line.
    */
-  private openTagEditorForTask(_t: EffectiveTask): Promise<string | null> {
+  private openTagEditorForTask(t: EffectiveTask): Promise<TagEditResult | null> {
     return new Promise((resolve) => {
-      const sheet = new BottomSheet(this.app, {
+      const initialTags = taskDisplayTags(t.tags);
+      const initialSet = new Set(initialTags);
+      const current = new Set(initialTags);
+      const suggestions = taskDisplayTags(
+        this.getEffectiveTasks().flatMap((task) => taskDisplayTags(task.tags)),
+      )
+        .filter((tag) => !initialSet.has(tag))
+        .slice(0, 16);
+      let sheet: BottomSheet | null = null;
+      let settled = false;
+      const finish = (result: TagEditResult | null) => {
+        if (settled) return;
+        settled = true;
+        sheet?.close();
+        resolve(result);
+      };
+
+      sheet = new BottomSheet(this.app, {
         title: tr("sheet.editTag"),
+        onClose: () => finish(null),
         populate: (el) => {
+          const root = el.createDiv({ cls: "bt-mobile-tag-sheet" });
+          const currentSection = root.createDiv({ cls: "bt-tag-editor-section" });
+          currentSection.createDiv({ cls: "bt-tag-editor-label", text: tr("sheet.editTagCurrent") });
+          const currentList = currentSection.createDiv({ cls: "bt-tag-chip-row" });
+
+          const inputSection = root.createDiv({ cls: "bt-tag-editor-section" });
+          inputSection.createDiv({ cls: "bt-tag-editor-label", text: tr("sheet.editTagAdd") });
+          const inputRow = inputSection.createDiv({ cls: "bt-tag-editor-input-row" });
           const input = el.createEl("input", {
             type: "text",
             placeholder: "#tag",
             cls: "bt-tag-search bt-tag-editor-input",
           });
+          inputRow.appendChild(input);
+          const addBtn = inputRow.createEl("button", {
+            cls: "bt-tag-editor-add",
+            text: tr("sheet.editTagAddButton"),
+          });
 
-          el.createDiv({ cls: "bt-menu-empty bt-tag-editor-hint", text: tr("sheet.editTagHint") });
+          const suggestionSection = root.createDiv({ cls: "bt-tag-editor-section" });
+          suggestionSection.createDiv({ cls: "bt-tag-editor-label", text: tr("sheet.editTagSuggestions") });
+          const suggestionList = suggestionSection.createDiv({ cls: "bt-tag-chip-row" });
+
+          const footer = root.createDiv({ cls: "bt-tag-editor-footer" });
+          const cancel = footer.createEl("button", {
+            cls: "bt-tag-editor-cancel",
+            text: tr("sheet.cancel"),
+          });
+          const save = footer.createEl("button", {
+            cls: "bt-tag-editor-save",
+            text: tr("sheet.save"),
+          });
+
+          const render = () => {
+            currentList.empty();
+            const currentTags = Array.from(current);
+            if (currentTags.length === 0) {
+              currentList.createDiv({ cls: "bt-tag-editor-empty", text: tr("sheet.editTagEmpty") });
+            }
+            for (const tag of currentTags) {
+              const chip = currentList.createEl("button", {
+                cls: "bt-tag-editor-chip bt-tag-editor-chip-active",
+              });
+              chip.dataset.tagChip = tag;
+              chip.setAttr("aria-label", tr("sheet.editTagRemove", { tag }));
+              chip.createSpan({ text: tag });
+              chip.createSpan({ cls: "bt-tag-editor-chip-remove", text: "×" });
+              chip.addEventListener("click", () => {
+                current.delete(tag);
+                render();
+              });
+            }
+
+            suggestionList.empty();
+            const available = suggestions.filter((tag) => !current.has(tag));
+            if (available.length === 0) {
+              suggestionList.createDiv({ cls: "bt-tag-editor-empty", text: tr("sheet.editTagNoSuggestions") });
+            }
+            for (const tag of available) {
+              const chip = suggestionList.createEl("button", {
+                cls: "bt-tag-editor-chip",
+                text: tag,
+              });
+              chip.dataset.tagSuggestion = tag;
+              chip.addEventListener("click", () => {
+                current.add(tag);
+                render();
+              });
+            }
+          };
+
+          const addInputTags = () => {
+            const tags = parseEditorTags(input.value);
+            if (tags.length === 0) return;
+            for (const tag of tags) current.add(tag);
+            input.value = "";
+            render();
+            input.focus();
+          };
+
+          addBtn.addEventListener("click", addInputTags);
 
           input.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && !e.isComposing) {
               e.preventDefault();
-              const val = input.value.trim();
-              sheet.close();
-              resolve(val || null);
+              addInputTags();
             } else if (e.key === "Escape") {
-              sheet.close();
-              resolve(null);
+              finish(null);
             }
           });
 
+          cancel.addEventListener("click", () => finish(null));
+          save.addEventListener("click", () => {
+            const next = new Set(current);
+            const add = Array.from(next).filter((tag) => !initialSet.has(tag));
+            const remove = Array.from(initialSet).filter((tag) => !next.has(tag));
+            finish({ add, remove });
+          });
+
+          render();
           window.setTimeout(() => input.focus(), 100);
 
-          sheet.modalEl.addEventListener("click", (e) => {
-            if (e.target === sheet.modalEl) {
-              sheet.close();
-              resolve(null);
+          sheet!.modalEl.addEventListener("click", (e) => {
+            if (e.target === sheet!.modalEl) {
+              finish(null);
             }
           });
         },

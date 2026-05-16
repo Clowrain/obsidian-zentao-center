@@ -588,7 +588,7 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 
 ### 11.1 源 Markdown 编辑层
 
-`US-168` 点击 Task Card 在当前 Task Center 上方打开源 Markdown 编辑层，并定位到 `task.path:task.line`。用户可以直接编辑该任务、子任务和上下文。
+`US-168` 点击 Task Card 进入源 Markdown 编辑能力，并定位到 `task.path:task.line`。用户可以直接编辑该任务、子任务和上下文。桌面端在当前 Task Center 上方打开源 Markdown 编辑层；移动端从详情 / 操作 sheet 的“编辑原文”显式动作进入 Obsidian 原生 Markdown 编辑器，并定位到任务行。
 
 这个入口取代：
 
@@ -597,7 +597,7 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 - 右键打开源文件。
 - 卡片标题 inline input。
 
-`US-168a` 普通卡片、Today 卡片、搜索结果卡片都走同一入口。
+`US-168a` 普通卡片、Today 卡片、搜索结果卡片都走同一源 Markdown 能力；移动端卡片单击先进入任务详情，不直接进入原文。
 
 `US-168b` 编辑并保存后，文件落盘，任务中心刷新。
 
@@ -605,13 +605,13 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 
 `US-168d` 旧 hover popover、卡片双击打开源文件、右键菜单打开源文件对应实现必须删除。同一能力统一由源 Markdown 编辑层承担。
 
-`US-168e` Esc、右上关闭、点击遮罩都能关闭编辑层，并回到原 tab / filter / scroll 状态。
+`US-168e` 桌面端 Esc、右上关闭、点击遮罩都能关闭编辑层，并回到原 tab / filter / scroll 状态。移动端使用 Obsidian 原生导航返回 Task Center。
 
 `US-168f` 视觉验收必须提供桌面与移动证据，证明它不是整屏 textarea / preview markdown 的开发者工具感，而是可用的 Obsidian-style 编辑体验。
 
-`US-168g` 移动端源 Markdown 编辑层必须限制尺寸：默认不遮蔽整个任务中心超过必要范围，内容区可滚动，高度有上限并避让软键盘。
+`US-168g` 移动端不在 Task Center 内嵌完整 Markdown 编辑浮层，不用 textarea 或自制 preview 冒充编辑器；必须调用 Obsidian 官方 workspace / MarkdownView 编辑能力打开源文件、定位任务行，并交给 Obsidian 原生编辑器处理键盘、安全区和滚动。
 
-`US-168h` 编辑层内提供“在原文中打开/定位”入口。它是用户主动选择，不能取代默认当前页编辑层。
+`US-168h` 桌面编辑层内提供“在原文中打开/定位”入口。它是用户主动选择，不能取代桌面默认当前页编辑层；移动端该入口本身就是原生打开原文。
 
 `US-161` 标题改名不再走卡片 inline input。用户在源 Markdown 编辑层改原文。
 
@@ -718,6 +718,8 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 `US-506` 长按卡片 ≥ 500ms 且未滚动时，弹移动端操作 sheet。单击卡片在移动端打开任务详情 bottom sheet；源 Markdown 编辑层只能由详情或操作 sheet 中的“编辑原文”显式进入。
 
 `US-506a` 移动端任务详情 bottom sheet 是卡片的默认入口，展示标题、来源、排期、截止、标签与关键动作。常用动作必须能在详情中完成：完成 / 取消完成、排期 / 改期、清空排期、放弃、编辑 tag、嵌套、编辑原文。它不能默认把用户带到整块 Markdown 编辑界面。
+
+`US-506b` 移动端编辑 tag 不是单个裸输入框。用户必须能在同一个 bottom sheet 中看到当前 tag、点按删除已有 tag、点按候选 tag 添加、手动输入新 tag，并用明确的保存 / 取消结束；触控目标不低于 44px，软键盘弹出时操作区仍可用。
 
 `US-507` 移动端不提供任务拖拽，必须提供显式等价路径：
 

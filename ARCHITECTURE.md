@@ -580,6 +580,10 @@ TaskCenterView.openSourceEditor(taskId)
 
 SourceDialog 不实现自己的 Markdown parser/writer，不用 textarea 冒充完整编辑体验。若 Obsidian public API 无法安全嵌入原生 MarkdownView，必须记录降级边界并保留后续修复任务；不能把只读 preview 当完成。（US-168f）
 
+桌面端 `SourceDialog` 可以通过临时 `WorkspaceLeaf` 承载真实 `MarkdownView`。移动端不复用该 overlay：`TaskCenterView.openSourceEditShell()` 在移动布局下调用 Obsidian 官方 `WorkspaceLeaf.openFile()` 打开源文件，并在 `MarkdownView.editor` 上设置 cursor / scrollIntoView 定位任务行。这样移动端的键盘、安全区、编辑滚动和返回行为都交给 Obsidian 原生编辑器处理。（US-168g / US-506）
+
+移动端 tag 编辑是视图层的差异化输入面板：从 `EffectiveTask.tags` 和当前任务集合推导当前 / 候选 tag，保存时对比初始集合，依次调用 `TaskCenterApi.tag(id, tag)` 或 `TaskCenterApi.tag(id, tag, true)`。写回仍由 writer 做字节级最小修改，不在视图层解析整行 Markdown。（US-506b / US-409）
+
 旧入口必须删除：hover popover、dblclick 打开源文件、右键打开源文件、卡片 inline title input。（US-168d / US-161）
 
 ### 7.4 DnD Controller

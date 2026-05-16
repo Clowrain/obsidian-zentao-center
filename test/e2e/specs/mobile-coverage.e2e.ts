@@ -112,6 +112,24 @@ async function setTestForceMobile(value: boolean): Promise<void> {
   }, value);
 }
 
+async function saveMobileShot(name: string): Promise<void> {
+  const dir = process.env.TASK_CENTER_MOBILE_SHOT_DIR;
+  if (!dir) return;
+  try {
+    await browser.cdp("Emulation", "setDeviceMetricsOverride", {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 2,
+      mobile: true,
+    });
+  } catch {
+    // Electron-backed WDIO sessions do not always expose all window commands.
+    // Screenshot capture is optional local evidence; it must not affect CI.
+  }
+  await browser.pause(100);
+  await browser.saveScreenshot(`${dir}/${name}`);
+}
+
 async function openMobileBoardWeek() {
   await setMobileForceLayout(true);
   await browser.executeObsidianCommand("task-center:open");
@@ -329,6 +347,100 @@ describe("Task Center — mobile coverage gap-fill (task #44)", function () {
       {
         timeout: 5000,
         timeoutMsg: "US-507a: tapping a date choice did not write scheduled date",
+      },
+    );
+  });
+
+  it("US-168g/US-506: mobile source action opens Obsidian's native Markdown editor at the task line", async function () {
+    await setTestForceMobile(true);
+    const today = todayISO();
+    const path = "Tasks/Mobile Source.md";
+    await writeAndWait(
+      path,
+      [`# Native source`, ``, `- [ ] Mobile native source target ⏳ ${today}`, ``].join("\n"),
+    );
+    await openMobileBoardWeek();
+
+    const cardSel = `.task-center-view [data-task-id="${path}:L3"]`;
+    await $(cardSel).waitForExist({ timeout: 5000 });
+    await $(cardSel).click();
+    await $(".task-center-bottom-sheet .bt-mobile-task-detail").waitForExist({ timeout: 3000 });
+    await $(".task-center-bottom-sheet [data-mobile-detail-action='source']").click();
+
+    const opened = await browser.waitUntil(
+      async () => {
+        const state = (await browser.executeObsidian(({ app }) => {
+          const view = app.workspace.activeLeaf?.view as unknown as {
+            getViewType?: () => string;
+            file?: { path?: string };
+            editor?: { getCursor: () => { line: number } };
+          } | null;
+          return {
+            path: view?.file?.path,
+            viewType: view?.getViewType?.(),
+            line: view?.editor?.getCursor?.().line,
+            hasSourceShell: !!document.querySelector("[data-source-edit-shell]"),
+          };
+        })) as unknown as { path?: string; viewType?: string; line?: number; hasSourceShell: boolean };
+        return state.path === path && state.viewType === "markdown" && state.line === 2 && !state.hasSourceShell;
+      },
+      {
+        timeout: 5000,
+        interval: 100,
+        timeoutMsg: "US-168g: mobile source action did not open native MarkdownView at the task line",
+      },
+    );
+    expect(opened).toBe(true);
+    await saveMobileShot("mobile-source-native.png");
+  });
+
+  it("US-506b: mobile tag editor manages current, suggested, and typed tags without a raw-only input", async function () {
+    await setTestForceMobile(true);
+    const today = todayISO();
+    const path = "Tasks/Mobile Tags.md";
+    await writeAndWait(
+      path,
+      [
+        `- [ ] Mobile tag target #old ⏳ ${today}`,
+        `- [ ] Suggestion source #next ⏳ ${today}`,
+        ``,
+      ].join("\n"),
+    );
+    await openMobileBoardWeek();
+
+    const cardSel = `.task-center-view [data-task-id="${path}:L1"]`;
+    await $(cardSel).waitForExist({ timeout: 5000 });
+    await $(cardSel).click();
+    await $(".task-center-bottom-sheet .bt-mobile-task-detail").waitForExist({ timeout: 3000 });
+    await $(".task-center-bottom-sheet [data-mobile-detail-action='tag']").click();
+
+    await $(".task-center-bottom-sheet .bt-mobile-tag-sheet").waitForExist({
+      timeout: 3000,
+      timeoutMsg: "US-506b: tag action did not open the tag management sheet",
+    });
+    await expect($(`.task-center-bottom-sheet [data-tag-chip="#old"]`)).toExist();
+    await expect($(`.task-center-bottom-sheet [data-tag-suggestion="#next"]`)).toExist();
+    await saveMobileShot("mobile-tag-editor.png");
+
+    await $(`.task-center-bottom-sheet [data-tag-chip="#old"]`).click();
+    await $(`.task-center-bottom-sheet [data-tag-suggestion="#next"]`).click();
+    await browser.execute(() => {
+      const input = document.querySelector<HTMLInputElement>(".task-center-bottom-sheet .bt-tag-editor-input");
+      if (!input) throw new Error("tag input missing");
+      input.value = "newtag";
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      document.querySelector<HTMLElement>(".task-center-bottom-sheet .bt-tag-editor-add")?.click();
+    });
+    await $(".task-center-bottom-sheet .bt-tag-editor-save").click();
+
+    await browser.waitUntil(
+      async () => {
+        const firstLine = (await readFile(path)).split("\n")[0] ?? "";
+        return firstLine.includes("#next") && firstLine.includes("#newtag") && !firstLine.includes("#old");
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: "US-506b: saving tag sheet did not apply add/remove tag diff",
       },
     );
   });
