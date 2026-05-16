@@ -205,7 +205,7 @@ export interface CardGestureOptions {
   longPressMs?: number;
   /** Distance considered "moved" (default 4px). */
   moveThresholdPx?: number;
-  /** Swipe commit threshold as fraction of element width (default 0.30). */
+  /** Swipe commit threshold as fraction of element width (default 0.50). */
   swipeThresholdRatio?: number;
   /** Long-press menu callback (e.g. open card action sheet). */
   onLongPress?: () => void;
@@ -229,7 +229,7 @@ export function attachCardGestures(
 ): () => void {
   const longPressMs = opts.longPressMs ?? 500;
   const moveThresholdPx = opts.moveThresholdPx ?? 4;
-  const swipeRatio = opts.swipeThresholdRatio ?? 0.3;
+  const swipeRatio = opts.swipeThresholdRatio ?? 0.5;
 
   let phase: GesturePhase = "idle";
   let longPressTimer: number | null = null;

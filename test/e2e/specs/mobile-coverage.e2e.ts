@@ -326,7 +326,55 @@ describe("Task Center — mobile coverage gap-fill (task #44)", function () {
     });
   });
 
-  // US-508 (left): swipe a card past the 30% threshold leftward to mark
+  it("US-508: swipe feedback appears only after half-card threshold and can be cancelled", async function () {
+    await setTestForceMobile(true);
+    const today = todayISO();
+    const path = "Tasks/Inbox.md";
+    await writeAndWait(path, `- [ ] Swipe-threshold target ⏳ ${today}\n`);
+    await openMobileBoardWeek();
+
+    const cardSel = `.task-center-view [data-task-id="${path}:L1"]`;
+    await $(cardSel).waitForExist({ timeout: 5000 });
+
+    const states = await browser.execute((sel: string) => {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (!el) throw new Error("card not found");
+      const rect = el.getBoundingClientRect();
+      const startX = rect.left + rect.width * 0.85;
+      const startY = rect.top + rect.height / 2;
+      const mk = (type: string, x: number, y: number) =>
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerType: "touch",
+          pointerId: 6,
+          clientX: x,
+          clientY: y,
+          button: 0,
+          isPrimary: true,
+        });
+      el.dispatchEvent(mk("pointerdown", startX, startY));
+      window.dispatchEvent(mk("pointermove", startX - rect.width * 0.4, startY));
+      const beforeHalf = el.dataset.swipeReady ?? "";
+      window.dispatchEvent(mk("pointermove", startX - rect.width * 0.55, startY));
+      const afterHalf = el.dataset.swipeReady ?? "";
+      const label = el.dataset.swipeLabel ?? "";
+      window.dispatchEvent(mk("pointermove", startX - rect.width * 0.1, startY));
+      const afterReturn = el.dataset.swipeReady ?? "";
+      window.dispatchEvent(mk("pointerup", startX - rect.width * 0.1, startY));
+      return { beforeHalf, afterHalf, afterReturn, label };
+    }, cardSel);
+
+    expect(states.beforeHalf).toBe("");
+    expect(states.afterHalf).toBe("true");
+    expect(states.label).toContain("Done");
+    expect(states.afterReturn).toBe("");
+    const content = await readFile(path);
+    expect(content).toContain("- [ ] Swipe-threshold target");
+    expect(content).not.toMatch(/^- \[x\] Swipe-threshold target/m);
+  });
+
+  // US-508 (left): swipe a card past the 50% threshold leftward to mark
   // it done — markdown line should carry `[x]` after the gesture.
   it("US-508: swipe-left past threshold marks the task done", async function () {
     await setTestForceMobile(true);
@@ -377,7 +425,7 @@ describe("Task Center — mobile coverage gap-fill (task #44)", function () {
     );
   });
 
-  // US-508 (right): swipe-right drops the task (`[-] ❌`).
+  // US-508 (right): swipe-right past the 50% threshold drops the task (`[-] ❌`).
   it("US-508: swipe-right past threshold drops the task", async function () {
     await setTestForceMobile(true);
     const today = todayISO();

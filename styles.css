@@ -2088,32 +2088,58 @@
     background: var(--background-modifier-hover);
   }
 
-  /* Swipe progress feedback (US-508): the swipe controller writes
-     `--tc-swipe-progress` (0..1) and `--tc-swipe-direction` (left|right)
-     on the card; we paint a translucent overlay that grows with progress.
-     Left-swipe = done (green), right-swipe = drop (red). */
-  .task-center-view[data-mobile-layout="true"] .bt-card[style*="--tc-swipe-direction"] {
+  /* Swipe confirm feedback (US-508): below 50% the card stays visually
+     quiet. Once the user crosses half the card width, JS marks the card
+     ready and we show a clear action label. Moving back under 50% removes
+     the marker and cancels if released. */
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-ready="true"] {
     position: relative;
     overflow: hidden;
   }
-  .task-center-view[data-mobile-layout="true"] .bt-card[style*="left"]::after,
-  .task-center-view[data-mobile-layout="true"] .bt-card[style*="right"]::after {
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-ready="true"]::after {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    width: calc(var(--tc-swipe-progress, 0) * 100%);
+    width: 50%;
     pointer-events: none;
-    opacity: 0.45;
+    opacity: 0.35;
+    animation: tc-swipe-confirm 120ms ease-out;
   }
-  .task-center-view[data-mobile-layout="true"] .bt-card[style*="left"]::after {
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-ready="true"]::before {
+    content: attr(data-swipe-label);
+    position: absolute;
+    top: 50%;
+    z-index: 1;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 12px;
+    font-weight: 700;
+    transform: translateY(-50%);
+    pointer-events: none;
+    box-shadow: var(--shadow-s);
+    animation: tc-swipe-confirm 120ms ease-out;
+  }
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-direction="left"]::after {
     left: auto;
     right: 0;
     background: var(--color-green);
   }
-  .task-center-view[data-mobile-layout="true"] .bt-card[style*="right"]::after {
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-direction="left"]::before {
+    right: 12px;
+  }
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-direction="right"]::after {
     left: 0;
     background: var(--color-red);
+  }
+  .task-center-view[data-mobile-layout="true"] .bt-card[data-swipe-direction="right"]::before {
+    left: 12px;
+  }
+  @keyframes tc-swipe-confirm {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   /* ───── Week view: vertical collapsible list (US-503) ───── */

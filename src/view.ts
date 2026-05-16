@@ -4103,16 +4103,27 @@ export class TaskCenterView extends ItemView {
       // scroll cancellation, and swipe share one state machine.
       //   US-506: hold N ms still → openCardActionSheet (action menu)
       //   US-507: no mobile drag/drop; movement routes to scroll/swipe.
-      //   US-508: swipe ≥ 30% left → done; ≥ 30% right → drop; both with
-      //           1s undo toast (settings.mobileSwipeEnabled gates).
+      //   US-508: swipe ≥ 50% left → done; ≥ 50% right → drop. Visual
+      //           feedback appears only after crossing the half-card threshold.
       //   US-510: swipe is opt-out via settings (platform-conditional UI).
       // see USER_STORIES.md
       const settings = this.plugin.settings;
       attachCardGestures(card, {
         longPressMs: settings.mobileLongPressMs,
         moveThresholdPx: 4,
-        swipeThresholdRatio: 0.3,
+        swipeThresholdRatio: 0.5,
         onLongPress: () => this.openCardActionSheet(t),
+        onSwipeProgress: (el, direction, progress) => {
+          if (direction === null || progress < 1) {
+            delete el.dataset.swipeReady;
+            delete el.dataset.swipeDirection;
+            delete el.dataset.swipeLabel;
+            return;
+          }
+          el.dataset.swipeReady = "true";
+          el.dataset.swipeDirection = direction;
+          el.dataset.swipeLabel = direction === "left" ? tr("sheet.done") : tr("sheet.drop");
+        },
         // Per US-510, swipe is opt-out via settings. When disabled the
         // gesture controller still parses left/right but never commits.
         onSwipeLeft: settings.mobileSwipeEnabled
