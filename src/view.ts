@@ -3051,7 +3051,7 @@ export class TaskCenterView extends ItemView {
         btn(tr("sheet.nest"), async () => {
           // UX-mobile §8.3: nest opens a parent picker bottom sheet
           const parentId = await this.openParentPickerForTask(t);
-          if (parentId !== null) await this.api.nest(t.id, parentId);
+          if (parentId !== null) await this.nestFromMobile(t, parentId);
         });
         btn(tr("sheet.editTag"), async () => {
           // UX-mobile §8.1: edit tag opens a tag editor
@@ -3134,7 +3134,7 @@ export class TaskCenterView extends ItemView {
         });
         secondaryAction("nest", tr("sheet.nest"), async () => {
           const parentId = await this.openParentPickerForTask(t);
-          if (parentId !== null) await this.api.nest(t.id, parentId);
+          if (parentId !== null) await this.nestFromMobile(t, parentId);
         });
         secondaryAction("source", tr("sheet.editSource"), () => this.openSourceEditShell(t));
       },
@@ -3239,72 +3239,228 @@ export class TaskCenterView extends ItemView {
   }
 
   /**
-   * Opens a bottom sheet listing all non-done tasks for parent selection.
-   * Returns the selected parent task id, or null if cancelled.
-   * UX-mobile §8.3: self and descendants are disabled in the picker.
+   * Mobile nest commit. The picker only chooses a parent id; the actual
+   * mutation still goes through the shared API/writer path used by desktop
+   * drag and CLI nest.
+   */
+  private async nestFromMobile(t: EffectiveTask, parentId: string): Promise<void> {
+    const parent = this._taskIndex.get(parentId) ?? this.tasks.find((candidate) => candidate.id === parentId);
+    const awaitCachePaths = parent ? [t.path, ...(parent.path !== t.path ? [parent.path] : [])] : [t.path];
+    const result = await this.api.nest(t.id, parentId);
+    if (!result.unchanged) {
+      const message = tr("notice.nested", {
+        title: parent?.title ?? parentId,
+        where: result.crossFile ? tr("notice.crossFile") : "",
+      });
+      if (result.undoOps && result.undoOps.length > 0) {
+        this.undoStack.push({
+          label: `nest under "${(parent?.title ?? parentId).slice(0, 20)}"`,
+          ops: result.undoOps,
+        });
+        this.showUndoableNotice(message);
+      } else {
+        new Notice(message);
+      }
+    }
+    await this.waitForCacheUpdate(awaitCachePaths);
+  }
+
+  private showUndoableNotice(message: string, duration = 5000): void {
+    const notice = new Notice(message, duration);
+    const undo = notice.messageEl.createSpan({
+      text: `  ${tr("notice.undoAction")}`,
+      cls: "bt-notice-undo",
+    });
+    let used = false;
+    undo.addEventListener("click", () => {
+      if (used) return;
+      used = true;
+      notice.hide();
+      void this.undoStack.pop();
+    });
+  }
+
+  /**
+   * Opens a bottom sheet for parent selection. It is intentionally not a
+   * raw "search + click commits" list: choosing a parent changes task
+   * structure, so mobile users get context, disabled invalid rows, and an
+   * explicit confirmation button before the shared nest writer runs.
    */
   private openParentPickerForTask(t: EffectiveTask): Promise<string | null> {
     return new Promise((resolve) => {
-      const sheet = new BottomSheet(this.app, {
-        title: tr("sheet.nest"),
+      let settled = false;
+      let selectedId: string | null = null;
+      let sheetBody: HTMLElement;
+      let candidateList: HTMLElement;
+      let confirmButton: HTMLButtonElement;
+      let sheet: BottomSheet | null = null;
+      const finish = (value: string | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+        sheet?.close();
+      };
+
+      const descendantIds = new Set<string>([t.id]);
+      const collectDescendants = (task: ParsedTask) => {
+        for (const line of task.childrenLines) {
+          const child = this._taskIndex.get(`${task.path}:L${line + 1}`);
+          if (!child || descendantIds.has(child.id)) continue;
+          descendantIds.add(child.id);
+          collectDescendants(child);
+        }
+      };
+      const rootTask = this._taskIndex.get(t.id) ?? t;
+      collectDescendants(rootTask);
+
+      const effectiveById = new Map(this.getEffectiveTasks().map((task) => [task.id, task]));
+      const visibleIds = new Set(
+        Array.from(this.contentEl.querySelectorAll<HTMLElement>("[data-task-id]"))
+          .map((el) => el.dataset.taskId)
+          .filter((id): id is string => !!id),
+      );
+      const eligibleTasks = this.getEffectiveTasks()
+        .filter((candidate) => {
+          if (candidate.effectiveStatus === "done") return false;
+          if (candidate.effectiveStatus === "dropped" || candidate.effectiveStatus === "cancelled") return false;
+          return true;
+        })
+        .sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+      const eligibleIds = new Set(eligibleTasks.map((candidate) => candidate.id));
+
+      const matchesSearch = (candidate: EffectiveTask, q: string) => {
+        if (!q) return true;
+        const needle = q.toLowerCase();
+        if (candidate.title.toLowerCase().includes(needle)) return true;
+        if (candidate.path.toLowerCase().includes(needle)) return true;
+        return candidate.tags.some((tag) => tag.toLowerCase().includes(needle));
+      };
+
+      const taskMeta = (candidate: EffectiveTask) => {
+        const parts: string[] = [`${compactPath(candidate.path)}:L${candidate.line + 1}`];
+        if (candidate.effectiveScheduled) parts.push(`⏳ ${candidate.effectiveScheduled}`);
+        const tags = taskDisplayTags(candidate.tags).slice(0, 2);
+        parts.push(...tags);
+        if (candidate.childrenLines.length > 0) {
+          parts.push(tr("sheet.parentPickerChildren", { n: String(candidate.childrenLines.length) }));
+        }
+        return parts.join(" · ");
+      };
+
+      const renderCandidate = (parent: HTMLElement, candidate: EffectiveTask) => {
+        const invalid = descendantIds.has(candidate.id);
+        const row = parent.createEl("button", {
+          cls: "bt-parent-candidate" + (invalid ? " is-disabled" : "") + (selectedId === candidate.id ? " is-selected" : ""),
+        });
+        row.dataset.parentCandidateId = candidate.id;
+        row.type = "button";
+        row.disabled = invalid;
+        row.setAttr("aria-pressed", selectedId === candidate.id ? "true" : "false");
+        row.createDiv({ cls: "bt-parent-candidate-title", text: candidate.title });
+        row.createDiv({
+          cls: "bt-parent-candidate-meta",
+          text: invalid ? tr("sheet.parentPickerInvalid") : taskMeta(candidate),
+        });
+        if (!invalid) {
+          row.addEventListener("click", () => {
+            selectedId = candidate.id;
+            render();
+          });
+        }
+      };
+
+      const renderGroup = (title: string, candidates: EffectiveTask[]) => {
+        if (candidates.length === 0) return;
+        const group = candidateList.createDiv({ cls: "bt-parent-picker-group" });
+        group.createDiv({ cls: "bt-parent-picker-group-title", text: title });
+        for (const candidate of candidates.slice(0, 12)) renderCandidate(group, candidate);
+      };
+
+      const unique = (items: EffectiveTask[]) => {
+        const seen = new Set<string>();
+        const out: EffectiveTask[] = [];
+        for (const item of items) {
+          if (seen.has(item.id)) continue;
+          seen.add(item.id);
+          out.push(item);
+        }
+        return out;
+      };
+
+      const render = () => {
+        const input = sheetBody.querySelector<HTMLInputElement>(".bt-parent-picker-search");
+        const q = input?.value.trim() ?? "";
+        candidateList.empty();
+        if (q) {
+          renderGroup(
+            tr("sheet.parentPickerSearchResults"),
+            eligibleTasks.filter((candidate) => matchesSearch(candidate, q)).slice(0, 50),
+          );
+        } else {
+          const renderedIds = new Set<string>();
+          const nextGroup = (candidates: EffectiveTask[]) => {
+            const out = unique(candidates.filter((candidate) => eligibleIds.has(candidate.id) || descendantIds.has(candidate.id)))
+              .filter((candidate) => !renderedIds.has(candidate.id));
+            for (const candidate of out) renderedIds.add(candidate.id);
+            return out;
+          };
+          renderGroup(
+            tr("sheet.parentPickerCurrentView"),
+            nextGroup(Array.from(visibleIds).map((id) => effectiveById.get(id)).filter((candidate): candidate is EffectiveTask => !!candidate)),
+          );
+          renderGroup(
+            tr("sheet.parentPickerSameFile"),
+            nextGroup(eligibleTasks.filter((candidate) => candidate.path === t.path)),
+          );
+        }
+
+        if (candidateList.childElementCount === 0) {
+          candidateList.createDiv({ cls: "bt-sheet-empty", text: tr("sheet.parentPickerEmpty") });
+        }
+        const selected = selectedId ? effectiveById.get(selectedId) : null;
+        confirmButton.disabled = !selected;
+        confirmButton.setText(
+          selected
+            ? tr("sheet.parentPickerConfirm", { title: selected.title })
+            : tr("sheet.parentPickerNeedsSelection"),
+        );
+      };
+
+      const pickerSheet = new BottomSheet(this.app, {
+        title: tr("sheet.parentPickerTitle"),
+        onClose: () => finish(null),
         populate: (el) => {
-          const search = el.createEl("input", {
+          sheetBody = el.createDiv({ cls: "bt-parent-picker" });
+          sheetBody.dataset.parentPicker = "true";
+          sheetBody.createDiv({
+            cls: "bt-parent-picker-subtitle",
+            text: tr("sheet.parentPickerSubtitle", { title: t.title }),
+          });
+
+          const search = sheetBody.createEl("input", {
             type: "text",
-            placeholder: tr("toolbar.filter"),
+            placeholder: tr("sheet.parentPickerSearch"),
             cls: "bt-tag-search bt-parent-picker-search",
           });
 
-          const list = el.createDiv({ cls: "bt-tag-options bt-parent-picker-list" });
-
-          // Collect IDs of t and all its descendants to exclude from candidates.
-          const descendantIds = new Set<string>();
-          const collectDescendants = (line: number) => {
-            for (const c of this.tasks) {
-              if (c.parentLine === line) {
-                descendantIds.add(c.id);
-                collectDescendants(c.line);
-              }
-            }
-          };
-          descendantIds.add(t.id);
-          collectDescendants(t.line);
-
-          const filterTasks = () => {
-            const q = search.value.toLowerCase();
-            list.empty();
-            const tasks = this.tasks.filter((c) =>
-              c.status !== "dropped" &&
-              !descendantIds.has(c.id) &&
-              (!q || c.title.toLowerCase().includes(q)),
-            ).slice(0, 50);
-
-            if (tasks.length === 0) {
-              list.createDiv({ cls: "bt-menu-empty", text: tr("sheet.empty") });
-              return;
-            }
-            for (const c of tasks) {
-              const row = list.createDiv({ cls: "bt-menu-option" });
-              row.createSpan({ text: c.title });
-              row.addEventListener("click", () => {
-                sheet.close();
-                resolve(c.id);
-              });
-            }
-          };
-
-          search.addEventListener("input", filterTasks);
-          filterTasks();
-
-          // Close on backdrop = cancel
-          sheet.modalEl.addEventListener("click", (e) => {
-            if (e.target === sheet.modalEl) {
-              sheet.close();
-              resolve(null);
-            }
+          candidateList = sheetBody.createDiv({ cls: "bt-parent-picker-list" });
+          const footer = sheetBody.createDiv({ cls: "bt-parent-picker-footer" });
+          footer.createDiv({ cls: "bt-parent-picker-effect", text: tr("sheet.parentPickerEffect") });
+          confirmButton = footer.createEl("button", {
+            cls: "bt-sheet-action bt-parent-picker-confirm",
+            text: tr("sheet.parentPickerNeedsSelection"),
           });
+          confirmButton.type = "button";
+          confirmButton.dataset.parentConfirm = "true";
+          confirmButton.disabled = true;
+          confirmButton.addEventListener("click", () => finish(selectedId));
+
+          search.addEventListener("input", render);
+          render();
         },
       });
-      sheet.open();
+      sheet = pickerSheet;
+      pickerSheet.open();
     });
   }
 

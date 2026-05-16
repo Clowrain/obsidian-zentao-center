@@ -2566,13 +2566,92 @@
 }
 
 /* Parent picker for mobile nest action (UX-mobile §8.3) */
+.task-center-bottom-sheet .bt-parent-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-center-bottom-sheet .bt-parent-picker-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
 .task-center-bottom-sheet .bt-parent-picker-search {
   width: 100%;
   margin-bottom: 8px;
 }
 .task-center-bottom-sheet .bt-parent-picker-list {
-  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 48vh;
   overflow-y: auto;
+}
+.task-center-bottom-sheet .bt-parent-picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-center-bottom-sheet .bt-parent-picker-group-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.task-center-bottom-sheet .bt-parent-candidate {
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  text-align: left;
+}
+.task-center-bottom-sheet .bt-parent-candidate.is-selected {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
+}
+.task-center-bottom-sheet .bt-parent-candidate.is-disabled {
+  opacity: 0.55;
+}
+.task-center-bottom-sheet .bt-parent-candidate-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.3;
+  font-size: 14px;
+  font-weight: 600;
+}
+.task-center-bottom-sheet .bt-parent-candidate-meta {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-center-bottom-sheet .bt-parent-picker-footer {
+  position: sticky;
+  bottom: calc(-1 * max(16px, env(safe-area-inset-bottom)));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 max(16px, env(safe-area-inset-bottom));
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.task-center-bottom-sheet .bt-parent-picker-effect {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.task-center-bottom-sheet .bt-parent-picker-confirm {
+  min-height: 44px;
+  font-weight: 700;
+  text-align: center;
 }
 
 /* Tag editor for mobile edit-tag action (UX-mobile §8.1 / US-506b) */

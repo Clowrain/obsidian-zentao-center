@@ -445,6 +445,71 @@ describe("Task Center — mobile coverage gap-fill (task #44)", function () {
     );
   });
 
+  it("US-507b: mobile parent picker shows context, requires confirmation, and nests with undoable writer semantics", async function () {
+    await setTestForceMobile(true);
+    const today = todayISO();
+    const path = "Tasks/Mobile Nest.md";
+    await writeAndWait(
+      path,
+      [
+        `- [ ] Mobile parent candidate #parent ⏳ ${today}`,
+        `    - [ ] Existing child under parent`,
+        `- [ ] Mobile child target #child ⏳ ${today}`,
+        ``,
+      ].join("\n"),
+    );
+    await openMobileBoardWeek();
+
+    const childId = `${path}:L3`;
+    const parentId = `${path}:L1`;
+    await $(`.task-center-view [data-task-id="${childId}"]`).waitForExist({ timeout: 5000 });
+    await $(`.task-center-view [data-task-id="${childId}"]`).click();
+    await $(".task-center-bottom-sheet .bt-mobile-task-detail").waitForExist({ timeout: 3000 });
+    await $(".task-center-bottom-sheet [data-mobile-detail-action='nest']").click();
+
+    await $(".task-center-bottom-sheet [data-parent-picker='true']").waitForExist({
+      timeout: 3000,
+      timeoutMsg: "US-507b: nest action did not open the parent picker",
+    });
+    await expect($(".task-center-bottom-sheet [data-parent-confirm='true']")).toBeDisabled();
+
+    const pickerState = await browser.execute((selfId: string, candidateId: string) => {
+      const picker = document.querySelector<HTMLElement>(".task-center-bottom-sheet [data-parent-picker='true']");
+      const search = picker?.querySelector<HTMLInputElement>(".bt-parent-picker-search");
+      const self = picker?.querySelector<HTMLButtonElement>(`[data-parent-candidate-id="${selfId}"]`);
+      const candidate = picker?.querySelector<HTMLElement>(`[data-parent-candidate-id="${candidateId}"]`);
+      const groups = Array.from(picker?.querySelectorAll<HTMLElement>(".bt-parent-picker-group-title") ?? [])
+        .map((el) => el.textContent ?? "");
+      return {
+        searchIsNotAutoFocused: document.activeElement !== search,
+        selfDisabled: self?.disabled ?? false,
+        candidateText: candidate?.textContent ?? "",
+        groups,
+      };
+    }, childId, parentId);
+    expect(pickerState.searchIsNotAutoFocused).toBe(true);
+    expect(pickerState.selfDisabled).toBe(true);
+    expect(pickerState.candidateText).toContain("Mobile parent candidate");
+    expect(pickerState.candidateText).toContain("Mobile Nest.md:L1");
+    expect(pickerState.candidateText).toContain("#parent");
+    expect(pickerState.groups.length).toBeGreaterThan(0);
+
+    await $(`.task-center-bottom-sheet [data-parent-candidate-id="${parentId}"]`).click();
+    await expect($(".task-center-bottom-sheet [data-parent-confirm='true']")).toBeEnabled();
+    await $(".task-center-bottom-sheet [data-parent-confirm='true']").click();
+
+    await browser.waitUntil(
+      async () => {
+        const content = await readFile(path);
+        return content.includes("    - [ ] Mobile child target #child") && !content.includes("Mobile child target #child ⏳");
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: "US-507b: confirming parent picker did not nest and clear the child's own schedule",
+      },
+    );
+  });
+
   // US-506: long-press on a card opens the action sheet
   // (`.task-center-bottom-sheet`). The plugin's settings define the
   // duration; we read it at runtime so the test stays honest after

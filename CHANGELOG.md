@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Mobile: redesign “Set as subtask” as a contextual parent picker with grouped candidates, disabled invalid rows, explicit confirmation, and undoable nest writes.
 - Mobile: remove the desktop search box from the phone toolbar, keep Query controls in the bottom sheet, and prevent toolbar overflow from clipping the week view.
 - Mobile: make card tap open a task detail bottom sheet, move source editing behind an explicit action, and replace typed date prompts with quick-date/calendar picking.
 - Mobile: change swipe actions to a half-card confirmation model so feedback appears only past 50% and can be cancelled by sliding back.
