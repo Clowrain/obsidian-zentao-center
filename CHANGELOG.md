@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Mobile: remove the desktop search box from the phone toolbar, keep Query controls in the bottom sheet, and prevent toolbar overflow from clipping the week view.
+- Mobile: make card tap open a task detail bottom sheet, move source editing behind an explicit action, and replace typed date prompts with quick-date/calendar picking.
 
 ## 0.8.7 — 2026-05-13
 

@@ -27,6 +27,8 @@ export interface BottomSheetOptions {
    * dismisses the sheet.
    */
   populate: (contentEl: HTMLElement) => void;
+  /** Optional close hook, useful for promise-based pickers. */
+  onClose?: () => void;
 }
 
 export class BottomSheet extends Modal {
@@ -47,5 +49,9 @@ export class BottomSheet extends Modal {
     contentEl.createEl("h3", { cls: "bt-sheet-title", text: this.opts.title });
 
     this.opts.populate(contentEl);
+  }
+
+  onClose(): void {
+    this.opts.onClose?.();
   }
 }

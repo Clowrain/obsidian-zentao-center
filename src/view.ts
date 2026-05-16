@@ -2961,7 +2961,85 @@ export class TaskCenterView extends ItemView {
           const newTag = await this.openTagEditorForTask(t);
           if (newTag !== null) await this.api.tag(t.id, newTag);
         });
+        btn(tr("sheet.editSource"), () => this.openSourceEditShell(t));
         btn(tr("sheet.drop"), () => this.api.drop(t.id));
+      },
+    });
+    sheet.open();
+  }
+
+  /**
+   * Mobile default card tap: task details first, source Markdown only by
+   * explicit action. This keeps the touch path small while still preserving
+   * US-168's source-edit capability.
+   */
+  private openMobileTaskDetailSheet(t: EffectiveTask): void {
+    let sheet: BottomSheet | null = null;
+    const run = async (op: () => Promise<unknown>) => {
+      sheet?.close();
+      try {
+        await op();
+      } catch (err) {
+        new Notice(tr("notice.error", { msg: (err as Error).message }), 4000);
+      }
+      this.scheduleRefresh();
+    };
+
+    const scheduleWithPicker = async () => {
+      const date = await this.openDatePicker(t.effectiveScheduled ?? todayISO());
+      if (date !== null) await this.api.schedule(t.id, date);
+    };
+
+    sheet = new BottomSheet(this.app, {
+      title: t.title,
+      populate: (el) => {
+        const detail = el.createDiv({ cls: "bt-mobile-task-detail" });
+        detail.createDiv({ cls: "bt-sheet-source", text: `${t.path}:L${t.line + 1}` });
+
+        const meta = detail.createDiv({ cls: "bt-mobile-task-detail-meta" });
+        if (t.effectiveScheduled) meta.createSpan({ text: `⏳ ${t.effectiveScheduled}` });
+        else meta.createSpan({ text: tr("sheet.unscheduled") });
+        if (t.effectiveDeadline) meta.createSpan({ text: `📅 ${t.effectiveDeadline}` });
+        if (t.estimate) meta.createSpan({ text: tr("meta.est", { dur: formatMinutes(t.estimate) }) });
+        if (t.actual) meta.createSpan({ text: tr("meta.act", { dur: formatMinutes(t.actual) }) });
+        for (const tag of taskDisplayTags(t.tags)) meta.createSpan({ text: tag });
+
+        const primary = detail.createDiv({ cls: "bt-mobile-task-detail-actions" });
+        const action = (id: string, text: string, fn: () => Promise<unknown>, danger = false) => {
+          const btn = primary.createEl("button", {
+            cls: "bt-sheet-action" + (danger ? " bt-sheet-action-danger" : ""),
+            text,
+          });
+          btn.dataset.mobileDetailAction = id;
+          btn.addEventListener("click", () => { void run(fn); });
+        };
+
+        action(
+          "done",
+          t.effectiveStatus === "done" ? tr("sheet.markUndone") : tr("sheet.done"),
+          () => (t.effectiveStatus === "done" ? this.api.undone(t.id) : this.api.done(t.id)),
+        );
+        action("schedule", t.effectiveScheduled ? tr("sheet.reschedule") : tr("sheet.schedule"), scheduleWithPicker);
+        if (t.effectiveScheduled) {
+          action("clear-schedule", tr("sheet.scheduleClear"), () => this.api.schedule(t.id, null));
+        }
+        action("drop", tr("sheet.drop"), () => this.api.drop(t.id), true);
+
+        const secondary = detail.createDiv({ cls: "bt-mobile-task-detail-secondary" });
+        const secondaryAction = (id: string, text: string, fn: () => Promise<unknown>) => {
+          const btn = secondary.createEl("button", { cls: "bt-sheet-action bt-sheet-action-secondary", text });
+          btn.dataset.mobileDetailAction = id;
+          btn.addEventListener("click", () => { void run(fn); });
+        };
+        secondaryAction("tag", tr("sheet.editTag"), async () => {
+          const newTag = await this.openTagEditorForTask(t);
+          if (newTag !== null) await this.api.tag(t.id, newTag);
+        });
+        secondaryAction("nest", tr("sheet.nest"), async () => {
+          const parentId = await this.openParentPickerForTask(t);
+          if (parentId !== null) await this.api.nest(t.id, parentId);
+        });
+        secondaryAction("source", tr("sheet.editSource"), () => this.openSourceEditShell(t));
       },
     });
     sheet.open();
@@ -3006,22 +3084,99 @@ export class TaskCenterView extends ItemView {
   }
 
   /**
-   * Opens a date-picker modal and returns the resolved ISO date string,
-   * null for "clear", or null for cancelled (Escape / close without Enter).
+   * Mobile date picker: no typed YYYY-MM-DD input. Users pick from quick
+   * dates or a touch calendar; persistence still writes ISO dates.
    */
-  private openDatePicker(): Promise<string | null> {
+  private openDatePicker(initialISO: string = todayISO()): Promise<string | null> {
     return new Promise((resolve) => {
-      const modal = new DatePromptModal(
-        this.app,
-        tr("sheet.scheduleCustom"),
-        "",
-        (iso) => {
-          if (iso === undefined) resolve(null);
-          else resolve(iso);
+      let settled = false;
+      let anchor = startOfMonth(initialISO);
+      let body: HTMLElement;
+      let sheet: BottomSheet | null = null;
+      const finish = (iso: string | null) => {
+        settled = true;
+        resolve(iso);
+        sheet?.close();
+      };
+      const render = () => {
+        body.empty();
+        const quick = body.createDiv({ cls: "bt-mobile-date-quick" });
+        const today = todayISO();
+        const quickDates = [
+          today,
+          addDays(today, 1),
+          addDays(today, 2),
+          addDays(today, 3),
+          addDays(today, 4),
+          addDays(today, 5),
+          addDays(today, 6),
+        ];
+        for (const iso of quickDates) {
+          const d = fromISO(iso);
+          const label = iso === today
+            ? tr("savedViews.dateToday")
+            : iso === addDays(today, 1)
+              ? tr("savedViews.dateTomorrow")
+              : `${weekdayLabel(d.getDay())} ${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          const btn = quick.createEl("button", { cls: "bt-mobile-date-quick-btn", text: label });
+          btn.dataset.dateChoice = iso;
+          if (iso === initialISO) btn.addClass("active");
+          btn.addEventListener("click", () => finish(iso));
+        }
+
+        const calendar = body.createDiv({ cls: "bt-mobile-date-calendar" });
+        const nav = calendar.createDiv({ cls: "bt-mobile-date-calendar-nav" });
+        const prev = nav.createEl("button", { text: "‹", cls: "bt-date-month-nav" });
+        nav.createSpan({ text: this.dateCalendarMonthLabelFor(anchor), cls: "bt-date-month-label" });
+        const next = nav.createEl("button", { text: "›", cls: "bt-date-month-nav" });
+        prev.addEventListener("click", () => {
+          anchor = startOfMonth(shiftMonth(anchor, -1));
+          render();
+        });
+        next.addEventListener("click", () => {
+          anchor = startOfMonth(shiftMonth(anchor, 1));
+          render();
+        });
+
+        const weekdays = calendar.createDiv({ cls: "bt-date-calendar-weekdays" });
+        const weekStart = this.plugin.settings.weekStartsOn;
+        for (let i = 0; i < 7; i++) {
+          const day = (weekStart + i) % 7;
+          weekdays.createSpan({ text: tr(WEEKDAY_KEYS[day]), cls: "bt-date-calendar-weekday" });
+        }
+
+        const monthStart = startOfMonth(anchor);
+        const gridStart = startOfWeek(monthStart, weekStart);
+        const grid = calendar.createDiv({ cls: "bt-date-calendar-grid" });
+        for (let i = 0; i < 42; i++) {
+          const iso = addDays(gridStart, i);
+          const d = fromISO(iso);
+          const cell = grid.createEl("button", { text: String(d.getDate()), cls: "bt-date-calendar-day" });
+          cell.dataset.dateChoice = iso;
+          if (startOfMonth(iso) !== monthStart) cell.addClass("other-month");
+          if (iso === today) cell.addClass("today");
+          if (iso === initialISO) cell.addClass("active");
+          cell.addEventListener("click", () => finish(iso));
+        }
+      };
+
+      sheet = new BottomSheet(this.app, {
+        title: tr("sheet.scheduleCustom"),
+        onClose: () => {
+          if (!settled) resolve(null);
         },
-      );
-      modal.open();
+        populate: (el) => {
+          body = el.createDiv({ cls: "bt-mobile-date-sheet" });
+          render();
+        },
+      });
+      sheet.open();
     });
+  }
+
+  private dateCalendarMonthLabelFor(anchorISO: string): string {
+    const d = fromISO(anchorISO);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
   }
 
   /**
@@ -4286,10 +4441,16 @@ export class TaskCenterView extends ItemView {
     }
 
     // Click → source edit shell. US-168 replaces hover previews and
-    // double-click source jumps with one primary card action.
+    // double-click source jumps with one primary card action. On mobile,
+    // the primary action is a compact task detail sheet; editing source
+    // Markdown is still available there as an explicit action.
     el.addEventListener("click", (e) => {
       e.stopPropagation();
-      void this.openSourceEditShell(t);
+      if (this.contentEl.dataset.mobileLayout === "true") {
+        this.openMobileTaskDetailSheet(t);
+      } else {
+        void this.openSourceEditShell(t);
+      }
     });
 
     // Right-click context menu

@@ -87,7 +87,7 @@ describe("Task Center — mobile filter UI (task #88)", function () {
     const today = todayISO();
     await writeAndWait(
       "Tasks/Inbox.md",
-      `- [ ] Mobile width fixture #alpha #1象限 ⏳ ${today}\n`,
+      `- [ ] Mobile width fixture #alpha #1象限 ⏳ ${today}\n- [ ] Mobile unscheduled width fixture #alpha\n`,
     );
 
     await browser.executeObsidianCommand("task-center:open");
@@ -108,13 +108,21 @@ describe("Task Center — mobile filter UI (task #88)", function () {
       const toolbar = document.querySelector<HTMLElement>(".task-center-view .bt-toolbar-main");
       const body = document.querySelector<HTMLElement>(".task-center-view .bt-body");
       const card = document.querySelector<HTMLElement>(".task-center-view [data-task-id='Tasks/Inbox.md:L1']");
-      if (!view || !toolbar || !body || !card) return false;
+      const tray = document.querySelector<HTMLElement>(".task-center-view .bt-unscheduled-pool");
+      const trayCard = document.querySelector<HTMLElement>(".task-center-view [data-task-id='Tasks/Inbox.md:L2']");
+      if (!view || !toolbar || !body || !card || !tray || !trayCard) return false;
       const viewWidth = view.getBoundingClientRect().width;
       const toolbarWidth = toolbar.getBoundingClientRect().width;
       const bodyWidth = body.getBoundingClientRect().width;
       const cardWidth = card.getBoundingClientRect().width;
+      const trayWidth = tray.getBoundingClientRect().width;
+      const trayCardWidth = trayCard.getBoundingClientRect().width;
       const toolbarHasNoHorizontalOverflow = toolbar.scrollWidth <= Math.ceil(toolbarWidth) + 1;
-      return toolbarHasNoHorizontalOverflow && bodyWidth >= viewWidth * 0.9 && cardWidth >= bodyWidth * 0.85;
+      return toolbarHasNoHorizontalOverflow &&
+        bodyWidth >= viewWidth * 0.9 &&
+        cardWidth >= bodyWidth * 0.85 &&
+        trayWidth >= bodyWidth * 0.95 &&
+        trayCardWidth >= trayWidth * 0.85;
     });
     expect(widthOk).toBe(true);
 

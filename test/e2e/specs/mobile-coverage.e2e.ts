@@ -239,6 +239,41 @@ describe("Task Center — mobile coverage gap-fill (task #44)", function () {
     });
   });
 
+  it("US-506a/US-507a: tapping a mobile card opens details, and scheduling uses tap-only dates", async function () {
+    await setTestForceMobile(true);
+    const target = inWeekNeighbor();
+    const path = "Tasks/Inbox.md";
+    await writeAndWait(path, "- [ ] Mobile detail target\n");
+    await openMobileBoardWeek();
+
+    const cardSel = `.task-center-view [data-task-id="${path}:L1"]`;
+    await $(cardSel).waitForExist({ timeout: 5000 });
+    await $(cardSel).click();
+
+    await $(".task-center-bottom-sheet .bt-mobile-task-detail").waitForExist({
+      timeout: 3000,
+      timeoutMsg: "US-506a: tapping mobile card did not open task detail sheet",
+    });
+    await expect($(".task-center-bottom-sheet [data-mobile-detail-action='source']")).toExist();
+    await expect($("[data-source-edit-shell]")).not.toExist();
+
+    await $(".task-center-bottom-sheet [data-mobile-detail-action='schedule']").click();
+    await $(".task-center-bottom-sheet .bt-mobile-date-sheet").waitForExist({
+      timeout: 3000,
+      timeoutMsg: "US-507a: schedule did not open tap-only date sheet",
+    });
+    await expect($(".task-center-bottom-sheet .bt-mobile-date-sheet input")).not.toExist();
+    await $(`.task-center-bottom-sheet [data-date-choice="${target}"]`).click();
+
+    await browser.waitUntil(
+      async () => (await readFile(path)).includes(`⏳ ${target}`),
+      {
+        timeout: 5000,
+        timeoutMsg: "US-507a: tapping a date choice did not write scheduled date",
+      },
+    );
+  });
+
   // US-506: long-press on a card opens the action sheet
   // (`.task-center-bottom-sheet`). The plugin's settings define the
   // duration; we read it at runtime so the test stays honest after

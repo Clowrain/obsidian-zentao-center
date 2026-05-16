@@ -1908,6 +1908,27 @@
     display: none;
   }
 
+  .task-center-view[data-mobile-layout="true"] .bt-pool-wrap {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-unscheduled-pool {
+    grid-column: 1 / -1;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-unscheduled-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-center-view[data-mobile-layout="true"] .bt-unscheduled-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
   /* Toolbar `+ Add` is duplicated by the action bar; hide on mobile so the
      thumb-reachable bottom button is the canonical entry. */
   .task-center-view[data-mobile-layout="true"] .bt-toolbar .bt-add-btn {
@@ -2315,9 +2336,82 @@
 .task-center-bottom-sheet .bt-sheet-action:active {
   background: var(--background-modifier-hover);
 }
+.task-center-bottom-sheet .bt-sheet-action-danger {
+  border-color: color-mix(in srgb, var(--color-red) 35%, var(--background-modifier-border));
+  color: var(--color-red);
+}
+.task-center-bottom-sheet .bt-sheet-action-secondary {
+  background: var(--background-primary);
+}
 .task-center-bottom-sheet .bt-sheet-action-disabled {
   opacity: 0.4;
   pointer-events: none;
+}
+
+.task-center-bottom-sheet .bt-mobile-task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.task-center-bottom-sheet .bt-mobile-task-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.task-center-bottom-sheet .bt-mobile-task-detail-meta span {
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-center-bottom-sheet .bt-mobile-task-detail-actions,
+.task-center-bottom-sheet .bt-mobile-task-detail-secondary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.task-center-bottom-sheet .bt-mobile-date-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.task-center-bottom-sheet .bt-mobile-date-quick {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.task-center-bottom-sheet .bt-mobile-date-quick-btn {
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-center-bottom-sheet .bt-mobile-date-quick-btn.active,
+.task-center-bottom-sheet .bt-date-calendar-day.active {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+.task-center-bottom-sheet .bt-mobile-date-calendar {
+  display: grid;
+  gap: 10px;
+}
+.task-center-bottom-sheet .bt-mobile-date-calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.task-center-bottom-sheet .bt-mobile-date-sheet .bt-date-calendar-day {
+  min-height: 38px;
 }
 
 /* Parent picker for mobile nest action (UX-mobile §8.3) */

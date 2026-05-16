@@ -810,7 +810,7 @@ E2E 覆盖 UX 主路径：
 - 源 Markdown 编辑层定位、编辑、保存、刷新。
 - Quick Add 成功 / Daily Notes 失败保留输入。
 - 桌面拖拽改期、放弃、嵌套、非法目标、跨 tab dwell、undo。
-- 移动端 week row、month bottom sheet、swipe、长按 action sheet。
+- 移动端 week row、month bottom sheet、swipe、任务详情 sheet、长按 action sheet、点选式日期 sheet。
 - CLI task 与 query 动词。
 - i18n 热切换。
 

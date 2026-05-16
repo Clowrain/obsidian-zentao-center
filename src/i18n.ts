@@ -225,11 +225,15 @@ const EN = {
   "sheet.markUndone": "↩ Mark undone",
   "sheet.done": "✓ Done",
   "sheet.scheduleAt": "⏳ {date}",
+  "sheet.schedule": "Schedule",
+  "sheet.reschedule": "Reschedule",
   "sheet.scheduleClear": "⏳ —",
+  "sheet.unscheduled": "Unscheduled",
   "sheet.drop": "Abandon",
   "sheet.scheduleCustom": "⏳ Pick a date…",
   "sheet.nest": "Set as subtask…",
   "sheet.editTag": "Edit tag",
+  "sheet.editSource": "Edit source",
   "sheet.editTagHint": "Enter a tag (e.g. #project, #next)",
 
   // task #43: date prompt hint line — bilingual EN baseline (the original
@@ -553,11 +557,15 @@ const ZH: Partial<typeof EN> = {
   "sheet.markUndone": "↩ 取消完成",
   "sheet.done": "✓ 完成",
   "sheet.scheduleAt": "⏳ {date}",
+  "sheet.schedule": "排期",
+  "sheet.reschedule": "改期",
   "sheet.scheduleClear": "⏳ —",
+  "sheet.unscheduled": "未排期",
   "sheet.drop": "放弃",
   "sheet.scheduleCustom": "⏳ 改期…",
   "sheet.nest": "设为子任务…",
   "sheet.editTag": "编辑 tag",
+  "sheet.editSource": "编辑原文",
   "sheet.editTagHint": "输入 tag（例如 #项目、#下一步）",
 
   // task #43: 日期弹窗提示
