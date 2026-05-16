@@ -190,22 +190,61 @@ describe("Task Center — mobile coverage gap-fill (task #44)", function () {
     await openMobileBoardWeek();
 
     await $(".task-center-view .bt-week").waitForExist({ timeout: 5000 });
-    const metrics = await browser.execute(() => {
-      const todayRow = document.querySelector<HTMLElement>(`.task-center-view [data-date="${today}"]`)!;
+    const metrics = await browser.execute((iso: string) => {
+      const todayRow = document.querySelector<HTMLElement>(`.task-center-view [data-date="${iso}"]`)!;
       const head = todayRow.querySelector<HTMLElement>(".bt-week-head")!;
       const stats = todayRow.querySelector<HTMLElement>(".bt-week-stats")!;
       const emptyRow = Array.from(document.querySelectorAll<HTMLElement>(".task-center-view .bt-week-col"))
-        .find((row) => row.dataset.date !== today && !row.querySelector(".bt-card"))!;
+        .find((row) => row.dataset.date !== iso && !row.querySelector(".bt-card"))!;
       const emptyHead = emptyRow.querySelector<HTMLElement>(".bt-week-head")!;
       return {
         statsParentIsHead: stats.parentElement === head,
         emptyRowHeight: emptyRow.getBoundingClientRect().height,
         emptyHeadHeight: emptyHead.getBoundingClientRect().height,
       };
-    });
+    }, today);
 
     expect(metrics.statsParentIsHead).toBe(true);
     expect(metrics.emptyRowHeight).toBeLessThanOrEqual(metrics.emptyHeadHeight + 4);
+  });
+
+  it("US-505: mobile task check circles align with the first title line", async function () {
+    const today = todayISO();
+    await writeAndWait(
+      "Tasks/Inbox.md",
+      `- [ ] Alignment parent task ⏳ ${today}\n    - [ ] Alignment child task\n`,
+    );
+    await openMobileBoardWeek();
+
+    const cardSel = `.task-center-view [data-task-id="Tasks/Inbox.md:L1"]`;
+    await $(cardSel).waitForExist({ timeout: 5000 });
+
+    const metrics = await browser.execute((sel: string) => {
+      const card = document.querySelector<HTMLElement>(sel)!;
+      const check = card.querySelector<HTMLElement>(".bt-check")!;
+      const title = card.querySelector<HTMLElement>(".bt-card-title")!;
+      const sub = card.querySelector<HTMLElement>(".bt-subcard")!;
+      const subCheck = sub.querySelector<HTMLElement>(".bt-sub-check")!;
+      const subTitle = sub.querySelector<HTMLElement>(".bt-subcard-title")!;
+      const titleFirstLineCenter = (el: HTMLElement) => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        const lineHeight = Number.parseFloat(style.lineHeight);
+        const paddingTop = Number.parseFloat(style.paddingTop);
+        return rect.top + paddingTop + lineHeight / 2;
+      };
+      const center = (el: HTMLElement) => {
+        const rect = el.getBoundingClientRect();
+        return rect.top + rect.height / 2;
+      };
+      return {
+        cardDiff: Math.abs(center(check) - titleFirstLineCenter(title)),
+        subDiff: Math.abs(center(subCheck) - titleFirstLineCenter(subTitle)),
+      };
+    }, cardSel);
+
+    expect(metrics.cardDiff).toBeLessThanOrEqual(2);
+    expect(metrics.subDiff).toBeLessThanOrEqual(2);
   });
 
   // US-504: Month tap-to-select inline day schedule — already

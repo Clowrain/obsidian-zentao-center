@@ -2070,6 +2070,10 @@
     align-items: center;
     justify-content: center;
   }
+  .task-center-view[data-mobile-layout="true"] .bt-card-title,
+  .task-center-view[data-mobile-layout="true"] .bt-subcard-title {
+    padding-top: 7px;
+  }
 
   /* `+N` chip on subcards with deeper subtrees (US-505). Tap → bottom
      sheet with full tree. Visual: small pill at the right of the subcard. */
