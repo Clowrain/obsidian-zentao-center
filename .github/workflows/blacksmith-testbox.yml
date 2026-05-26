@@ -3,6 +3,12 @@ name: Blacksmith Testbox
 on:
   workflow_dispatch:
 
+env:
+  # GitHub Actions is deprecating the Node.js 20 action runtime. Opt in now
+  # so checkout/setup-node/pnpm actions run on Node 24 while project tests
+  # still use the explicit node-version below.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 permissions:
   contents: read
 
