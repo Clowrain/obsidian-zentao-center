@@ -55,12 +55,7 @@ function isExistingCliHandlerError(error: unknown): boolean {
 }
 
 function isDevReloadToleranceEnabled(): boolean {
-  try {
-    return typeof window !== "undefined"
-      && window.localStorage?.getItem("task-center-dev-reload-tolerant") === "1";
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 export default class TaskCenterPlugin extends Plugin {

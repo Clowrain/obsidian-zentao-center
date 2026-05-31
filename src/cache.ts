@@ -28,12 +28,17 @@ export interface FileEntry {
 }
 
 type ChangedListener = (paths: Set<string>) => void;
+type MetadataCacheWithCachedFiles = App["metadataCache"] & {
+  getCache?: (path: string) => { listItems?: Array<{ task?: string }> } | null;
+  getCachedFiles?: () => string[];
+};
 
 export class TaskCache {
   private readonly byPath = new Map<string, FileEntry>();
   private readonly byHash = new Map<string, ParsedTask[]>();
   private readonly pending = new Map<string, Promise<FileEntry | null>>();
   private readonly listeners = new Set<ChangedListener>();
+  private readonly knownMarkdownPaths = new Set<string>();
   // US-208 / VAL-CLI-004: persists "path:Lnn → hash" mappings from previous
   // cache entries so that stale path:line refs can recover by hash even after
   // the cache has been re-parsed and the old entry is gone.
@@ -69,13 +74,23 @@ export class TaskCache {
     refs.push(
       this.app.metadataCache.on("changed", (file) => {
         if (file instanceof TFile && file.extension === "md") {
+          this.knownMarkdownPaths.add(file.path);
           void this.invalidateFile(file.path);
+        }
+      }),
+    );
+    refs.push(
+      this.app.vault.on("create", (f) => {
+        if (f instanceof TFile && f.extension === "md") {
+          this.knownMarkdownPaths.add(f.path);
+          void this.invalidateFile(f.path);
         }
       }),
     );
     refs.push(
       this.app.vault.on("delete", (f) => {
         if (f instanceof TFile && f.extension === "md") {
+          this.knownMarkdownPaths.delete(f.path);
           this.dropPath(f.path);
         }
       }),
@@ -83,6 +98,8 @@ export class TaskCache {
     refs.push(
       this.app.vault.on("rename", (f, oldPath) => {
         if (f instanceof TFile && f.extension === "md") {
+          this.knownMarkdownPaths.delete(oldPath);
+          this.knownMarkdownPaths.add(f.path);
           this.renamePath(oldPath, f.path);
         }
       }),
@@ -128,6 +145,7 @@ export class TaskCache {
       this.dropPath(path);
       return null;
     }
+    this.knownMarkdownPaths.add(path);
     const meta = this.app.metadataCache.getFileCache(af);
     const hasTaskListItem =
       meta !== null
@@ -177,6 +195,7 @@ export class TaskCache {
   }
 
   private dropPath(path: string): void {
+    this.knownMarkdownPaths.delete(path);
     const prev = this.byPath.get(path);
     if (!prev) return;
     for (const t of prev.tasks) {
@@ -191,6 +210,8 @@ export class TaskCache {
   }
 
   private renamePath(oldPath: string, newPath: string): void {
+    this.knownMarkdownPaths.delete(oldPath);
+    this.knownMarkdownPaths.add(newPath);
     const prev = this.byPath.get(oldPath);
     if (!prev) return;
     // Remap path on cached tasks rather than reparsing — file bytes haven't
@@ -263,7 +284,8 @@ export class TaskCache {
 
   private async loadAll(): Promise<ParsedTask[]> {
     this.__stats.ensureCount++;
-    const files = this.app.vault.getMarkdownFiles();
+    const { files, skipped } = this.collectMarkdownFilesToPrime();
+    this.__stats.skipCount += skipped;
     const candidates: TFile[] = [];
     // US-404: skip files whose metadataCache confirms zero task list items.
     // Big vaults (~6500-file regression in #1 large-vault regression) parse-flooded the
@@ -272,6 +294,10 @@ export class TaskCache {
     // empty without bytes), so the skip is conservative.
     // see USER_STORIES.md
     for (const f of files) {
+      const cached = this.byPath.get(f.path);
+      if (cached && cached.mtime === f.stat.mtime) {
+        continue;
+      }
       const meta = this.app.metadataCache.getFileCache(f);
       const hasTask =
         meta !== null
@@ -313,6 +339,41 @@ export class TaskCache {
     this.allLoaded = true;
     if (updated.size > 0) this.emit(updated);
     return this.flatten();
+  }
+
+  private collectMarkdownFilesToPrime(): { files: TFile[]; skipped: number } {
+    const paths = new Set(this.knownMarkdownPaths);
+    const metadataCache = this.app.metadataCache as MetadataCacheWithCachedFiles;
+    let skipped = 0;
+    if (typeof metadataCache.getCachedFiles === "function") {
+      for (const path of metadataCache.getCachedFiles()) {
+        if (!path.endsWith(".md") || paths.has(path)) continue;
+        const meta =
+          typeof metadataCache.getCache === "function"
+            ? metadataCache.getCache(path)
+            : null;
+        if (meta !== null) {
+          const hasTask = meta.listItems?.some((li) => li.task !== undefined) ?? false;
+          if (!hasTask) {
+            skipped++;
+            continue;
+          }
+        }
+        paths.add(path);
+      }
+    }
+
+    const files: TFile[] = [];
+    for (const path of paths) {
+      const af = this.app.vault.getAbstractFileByPath(path);
+      if (af instanceof TFile && af.extension === "md") {
+        this.knownMarkdownPaths.add(af.path);
+        files.push(af);
+      } else {
+        this.knownMarkdownPaths.delete(path);
+      }
+    }
+    return { files, skipped };
   }
 
   flatten(): ParsedTask[] {

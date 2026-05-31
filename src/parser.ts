@@ -312,7 +312,6 @@ export async function parseFileTasks(
   return tasks;
 }
 
-// `parseVaultTasks` was removed in Phase 1 — vault-wide scans now live in
-// `cache.ts/TaskCache.ensureAll`. Per ARCHITECTURE.md §3.3, only `cache.ts`
-// is allowed to enumerate `app.vault.getMarkdownFiles()`. This module exposes
-// only per-line / per-file pure parsing primitives.
+// `parseVaultTasks` was removed in Phase 1. Collection-level reads now live in
+// `cache.ts/TaskCache.ensureAll`; this module exposes only per-line / per-file
+// pure parsing primitives.

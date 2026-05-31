@@ -424,16 +424,10 @@ export class TaskCenterView extends ItemView {
    * content until the cache reparses. Pass `awaitCachePaths` so we wait for
    * `metadataCache.on('changed')` on each affected file before the render.
    */
-  // US-125 task #33 observability gate. Set
-  //   localStorage.setItem("task-center-debug","1")
-  // in dev console to enable; reload Obsidian to take effect. Logs are
-  // gated so they cost nothing for non-debug users.
+  // US-125 task #33 observability gate. Disabled in release builds so Task
+  // Center does not read browser storage for ad-hoc debug flags.
   private isDebugLogging(): boolean {
-    try {
-      return window.localStorage.getItem("task-center-debug") === "1";
-    } catch {
-      return false;
-    }
+    return false;
   }
 
   private async runWithRemoveAnim(

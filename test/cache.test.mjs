@@ -4,6 +4,7 @@
 //   - hasTaskListItem null-cache rule: parse when metadata is unindexed,
 //     skip only when metadata explicitly says "no task list items".
 //   - ensureAll() never opens task-free files (large-vault regression root cause).
+//   - ensureAll() relies on metadata-known markdown paths, not vault file enumeration.
 //   - Write-path resolveRef goes single-file (no implicit ensureAll).
 //   - cache.changed fires AFTER reparse settles, so flatten() in the callback
 //     is post-state.
@@ -69,13 +70,23 @@ function makeApp(specs) {
   const byPath = new Map(files.map((f) => [f.path, f]));
   const metaListeners = []; // {event,cb}
   const vaultListeners = []; // {event,cb}
+  const getFileCache = (f) => {
+    if (!f._metaIndexed) return null;
+    if (f._hasTask) {
+      return {
+        listItems: [
+          { task: " ", position: { start: { line: 0 } }, parent: -1 },
+        ],
+      };
+    }
+    return { listItems: [] };
+  };
 
   return {
     _files: files,
     _byPath: byPath,
 
     vault: {
-      getMarkdownFiles: () => files.filter((f) => f.extension === "md"),
       getAbstractFileByPath: (p) => byPath.get(p) ?? null,
       cachedRead: async (f) => {
         if (f._parseFails) throw new Error("simulated read failure");
@@ -89,17 +100,13 @@ function makeApp(specs) {
     },
 
     metadataCache: {
-      getFileCache: (f) => {
-        if (!f._metaIndexed) return null;
-        if (f._hasTask) {
-          return {
-            listItems: [
-              { task: " ", position: { start: { line: 0 } }, parent: -1 },
-            ],
-          };
-        }
-        return { listItems: [] };
+      getCachedFiles: () => files.filter((f) => f.extension === "md").map((f) => f.path),
+      getCache: (path) => {
+        const f = byPath.get(path);
+        if (!f) return null;
+        return getFileCache(f);
       },
+      getFileCache,
       on: (event, cb) => {
         const ref = { event, cb };
         metaListeners.push(ref);
@@ -174,6 +181,23 @@ test("ensureAll: skips metadata-confirmed task-free files (#1 large-vault regres
   // settle in well under a second on any dev machine. The point is that the
   // skip path is O(1) per file.
   assert.ok(dt < 1000, `ensureAll over 6550 mock files must finish < 1000ms, got ${dt}ms`);
+});
+
+test("ensureAll: can load from metadata changed candidates without cached-file enumeration", async () => {
+  const app = makeApp([
+    { path: "Tasks/t1.md", hasTask: true, content: "- [ ] Alpha\n" },
+    { path: "Tasks/t2.md", hasTask: true, content: "- [ ] Bravo\n" },
+  ]);
+  delete app.metadataCache.getCachedFiles;
+  const cache = new TaskCache(app);
+  cache.bind();
+
+  app._fireMetaChanged("Tasks/t1.md");
+  await cache.forFlush();
+  const tasks = await cache.ensureAll();
+
+  assert.deepEqual(tasks.map((t) => t.title), ["Alpha"]);
+  assert.equal(cache.__stats.parseCount, 1);
 });
 
 test("ensureAll: parses files where metadata is not yet indexed (no false skip)", async () => {

@@ -27,10 +27,10 @@ import { applyQueryFilters } from "./query/filter";
 import { applyViewProjection, type ViewModel } from "./query/projection";
 import { computeSummary, type SummaryResultItem } from "./query/summary";
 
-// REMINDER: this module must NOT call `parseVaultTasks` or
-// `app.vault.getMarkdownFiles()` directly. All parse work goes through
-// `TaskCache`. Write verbs resolve refs via `cache.resolveRef`, which is
-// single-file for `path:Lnnn`. (ARCHITECTURE.md §3.3 / §5.1, #2 large-vault regression)
+// REMINDER: this module must NOT scan vault files directly. All parse work
+// goes through `TaskCache`. Write verbs resolve refs via `cache.resolveRef`,
+// which is single-file for `path:Lnnn`.
+// (ARCHITECTURE.md §3.3 / §5.1, #2 large-vault regression)
 
 /** Per-line result returned by {@link TaskCenterApi.drop} for cascade undo. */
 export interface DropResult {

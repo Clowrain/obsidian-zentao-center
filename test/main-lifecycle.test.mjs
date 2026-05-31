@@ -165,23 +165,6 @@ function makeAppWithExistingRegistrations() {
   return app;
 }
 
-function installDevReloadFlag(value) {
-  const originalWindow = globalThis.window;
-  const localStorage = {
-    getItem(key) {
-      return key === "task-center-dev-reload-tolerant" ? value : null;
-    },
-  };
-  globalThis.window = { ...(originalWindow ?? {}), localStorage };
-  return () => {
-    if (originalWindow === undefined) {
-      delete globalThis.window;
-    } else {
-      globalThis.window = originalWindow;
-    }
-  };
-}
-
 async function createPluginForQueryCli(overrides = {}) {
   await compile();
   const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}-${Math.random()}`);
@@ -228,34 +211,6 @@ test("plugin onload rejects duplicate view registration in the production path",
     () => plugin.onload(),
     /Attempting to register an existing view type "task-center-board"/,
   );
-});
-
-test("plugin onload tolerates duplicate registrations only behind the dev reload flag", async () => {
-  await compile();
-  const { default: TaskCenterPlugin } = await import(`../${compiledPath}?t=${Date.now()}`);
-  const app = makeAppWithExistingRegistrations();
-  const plugin = new TaskCenterPlugin(app);
-  const warnings = [];
-  const errors = [];
-  const originalWarn = console.warn;
-  const originalError = console.error;
-  const restoreFlag = installDevReloadFlag("1");
-  console.warn = (...args) => warnings.push(args);
-  console.error = (...args) => errors.push(args);
-
-  try {
-    await assert.doesNotReject(
-      () => plugin.onload(),
-      /existing view type|already registered as a handler/,
-    );
-    assert.ok(plugin.api, "plugin should keep loading the GUI/API after a stale view registration");
-    assert.deepEqual(warnings, [], "dev reload tolerance should stay quiet");
-    assert.deepEqual(errors, [], "dev reload tolerance should not report a production failure");
-  } finally {
-    console.warn = originalWarn;
-    console.error = originalError;
-    restoreFlag();
-  }
 });
 
 test("plugin onload rejects duplicate native CLI handlers in the production path", async () => {

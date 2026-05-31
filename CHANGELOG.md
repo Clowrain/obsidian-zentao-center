@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Release: prepare 0.8.18 with community-plugin audit cleanup for clipboard, browser storage, vault enumeration, CSS compatibility, and dev dependency advisories.
 - Mobile: redesign “Set as subtask” as a contextual parent picker with grouped candidates, disabled invalid rows, explicit confirmation, and undoable nest writes.
 - Mobile: remove the desktop search box from the phone toolbar, keep Query controls in the bottom sheet, and prevent toolbar overflow from clipping the week view.
 - Mobile: make card tap open a task detail bottom sheet, move source editing behind an explicit action, and replace typed date prompts with quick-date/calendar picking.

@@ -35,32 +35,14 @@ Obsidian Tasks owns the task syntax and query model. Task Center keeps that foun
 
 ## Install
 
-Task Center is not yet listed in Obsidian's Community Plugins browser. Until it is, install it with BRAT so releases and updates come from GitHub.
+Install Task Center from Obsidian Community Plugins:
+
+[Click here to install Task Center](https://community.obsidian.md/plugins/task-center)
 
 ### Prerequisites
 
 1. Install and enable [Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks). Task Center reads and writes Tasks-compatible markdown and expects the Tasks plugin to remain the data-layer companion.
 2. Enable Obsidian's built-in **Daily Notes** core plugin and set its "New file location". Quick Add writes new tasks to today's Daily Note and refuses to fall back to an inbox when Daily Notes is missing or misconfigured.
-
-### Install with BRAT
-
-1. In Obsidian, open **Settings -> Community plugins**.
-2. Turn off Restricted Mode if Obsidian asks you to.
-3. Click **Browse**, search for **BRAT**, install **Obsidian42 - BRAT**, and enable it.
-4. Open **Settings -> BRAT**.
-5. Choose **Add Beta Plugin**.
-6. Paste this repository URL:
-
-   ```text
-   https://github.com/CorrectRoadH/obsidian-task-center
-   ```
-
-7. Let BRAT install the latest release.
-8. Return to **Settings -> Community plugins** and enable **Task Center**.
-
-### Mobile install
-
-Task Center is mobile-capable (`isDesktopOnly: false`). Install it on desktop with BRAT, sync plugins with Obsidian Sync, then enable **Task Center** in Obsidian Mobile.
 
 ## Quick Start
 

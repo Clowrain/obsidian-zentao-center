@@ -761,13 +761,11 @@ const ZH: Partial<typeof EN> = {
 };
 
 // US-408: re-detect locale on every `t()` call so that flipping the
-// Obsidian UI language at runtime (Settings → About → Language, which
-// updates `localStorage.language`) is reflected immediately. The
-// localStorage read is ~100 ns — cheap enough that we don't bother
-// caching. A view that wants its DOM to refresh after a language switch
+// Obsidian UI language at runtime (Settings → About → Language) is reflected
+// immediately. A view that wants its DOM to refresh after a language switch
 // must additionally subscribe to `app.workspace.on("css-change")` and
-// re-render; this function only guarantees the next call returns the
-// current locale's translation.
+// re-render; this function only guarantees the next call returns the current
+// locale's translation.
 
 export function t(key: keyof typeof EN, vars?: Record<string, string | number>): string {
   const locale = detectLocale();

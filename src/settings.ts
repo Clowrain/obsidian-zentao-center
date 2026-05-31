@@ -149,15 +149,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
 
     const skillInstall = new Setting(containerEl)
       .setName(tr("settings.skillInstall.name"))
-      .setDesc(tr("settings.skillInstall.desc"))
-      .addButton((btn) =>
-        btn
-          .setButtonText(tr("settings.copy"))
-          .onClick(async () => {
-            await navigator.clipboard.writeText(SKILL_INSTALL_COMMAND);
-            new Notice(tr("settings.copied"));
-          }),
-      );
+      .setDesc(tr("settings.skillInstall.desc"));
     skillInstall.settingEl.dataset.skillInstall = "true";
     skillInstall.descEl.empty();
     skillInstall.descEl.createSpan({ text: tr("settings.skillInstall.desc") });
