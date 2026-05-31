@@ -135,6 +135,11 @@ function makeApp(specs) {
       const f = byPath.get(path);
       if (f) f._hasTask = hasTask;
     },
+
+    _setMtime(path, mtime) {
+      const f = byPath.get(path);
+      if (f) f.stat = { ...f.stat, mtime };
+    },
   };
 }
 
@@ -198,6 +203,30 @@ test("ensureAll: can load from metadata changed candidates without cached-file e
 
   assert.deepEqual(tasks.map((t) => t.title), ["Alpha"]);
   assert.equal(cache.__stats.parseCount, 1);
+});
+
+test("ensureAll: after initial board load, picks up externally added tasks even without changed event", async () => {
+  const app = makeApp([
+    {
+      path: "Daily/today.md",
+      hasTask: false,
+      metaIndexed: true,
+      content: "journal only\n",
+      mtime: 1000,
+    },
+  ]);
+  const cache = new TaskCache(app);
+  cache.bind();
+
+  assert.deepEqual(await cache.ensureAll(), []);
+
+  app._setContent("Daily/today.md", "- [ ] Added in Obsidian\n");
+  app._setHasTask("Daily/today.md", true);
+  app._setMtime("Daily/today.md", 2000);
+
+  const tasks = await cache.ensureAll();
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].title, "Added in Obsidian");
 });
 
 test("ensureAll: parses files where metadata is not yet indexed (no false skip)", async () => {

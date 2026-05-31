@@ -274,12 +274,19 @@ export class TaskCache {
    * guarantee from `metadataCache.changed`.
    */
   ensureAll(): Promise<ParsedTask[]> {
-    if (this.allLoaded) return Promise.resolve(this.flatten());
     if (this.allLoadingPromise) return this.allLoadingPromise;
+    if (this.allLoaded && !this.canRefreshFromMetadataIndex()) {
+      return Promise.resolve(this.flatten());
+    }
     this.allLoadingPromise = this.loadAll().finally(() => {
       this.allLoadingPromise = null;
     });
     return this.allLoadingPromise;
+  }
+
+  private canRefreshFromMetadataIndex(): boolean {
+    const metadataCache = this.app.metadataCache as MetadataCacheWithCachedFiles;
+    return typeof metadataCache.getCachedFiles === "function";
   }
 
   private async loadAll(): Promise<ParsedTask[]> {
