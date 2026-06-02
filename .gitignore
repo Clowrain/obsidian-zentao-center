@@ -9,3 +9,4 @@ test/.compiled/
 .obsidian-cache/
 test/e2e/vaults/*/.obsidian/workspace*
 test/e2e/vaults/*/.obsidian/cache
+.harness/

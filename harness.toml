@@ -1,0 +1,31 @@
+[project]
+name = "obsidian-task-center"
+
+[lint]
+default_level = "warn"
+changed_base = "origin/main"
+cache = true
+
+[rules]
+local = ["rules"]
+
+[packs]
+
+[overrides]
+
+[disabled]
+rules = []
+
+[ignore]
+paths = []
+
+[registry]
+url = "https://raw.githubusercontent.com/CorrectRoadH/harness-lint/main/site/catalog.json"
+
+[obsidian]
+markdown_links = false
+orphan_files = false
+note_roots = []
+content_roots = []
+content_extensions = []
+require_capitalized_dirs = false
