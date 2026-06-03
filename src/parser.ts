@@ -249,6 +249,65 @@ export function parseTaskFromLine(
   };
 }
 
+function fencedCodeBoundary(line: string): { marker: "`" | "~"; length: number } | null {
+  const match = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+  if (!match) return null;
+  const fence = match[1];
+  return {
+    marker: fence[0] as "`" | "~",
+    length: fence.length,
+  };
+}
+
+function parseRawFileTasks(
+  path: string,
+  lines: string[],
+  mtime: number,
+): ParsedTask[] {
+  const tasks: ParsedTask[] = [];
+  const byLine = new Map<number, ParsedTask>();
+  const stack: Array<{ line: number; indentWidth: number }> = [];
+  let openFence: { marker: "`" | "~"; length: number } | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const fence = fencedCodeBoundary(lines[i]);
+    if (
+      fence &&
+      (openFence === null ||
+        (fence.marker === openFence.marker && fence.length >= openFence.length))
+    ) {
+      openFence = openFence === null ? fence : null;
+      stack.length = 0;
+      continue;
+    }
+    if (openFence) continue;
+
+    const task = parseTaskFromLine(path, i, lines[i], null, mtime);
+    if (!task) {
+      if (lines[i].trim().length === 0) stack.length = 0;
+      continue;
+    }
+
+    const indentWidth = task.indent.length;
+    while (stack.length > 0 && stack[stack.length - 1].indentWidth >= indentWidth) {
+      stack.pop();
+    }
+    const parentLine = stack.length > 0 ? stack[stack.length - 1].line : null;
+    task.parentLine = parentLine;
+    task.parentIndex = parentLine;
+    if (parentLine !== null) {
+      const parent = byLine.get(parentLine);
+      if (parent) parent.childrenLines.push(i);
+    }
+
+    tasks.push(task);
+    byLine.set(i, task);
+    stack.push({ line: i, indentWidth });
+  }
+
+  return tasks;
+}
+
 export async function parseFileTasks(
   app: App,
   file: TFile,
@@ -332,11 +391,9 @@ export async function parseFileTasks(
     }
     tasks.push(...Array.from(byLine.values()).sort((a, b) => a.line - b.line));
   } else {
-    // Fallback: scan raw lines
-    for (let i = 0; i < lines.length; i++) {
-      const task = parseTaskFromLine(file.path, i, lines[i], null, mtime);
-      if (task) tasks.push(task);
-    }
+    // Fallback: metadata is not indexed yet, so reconstruct the task tree
+    // from raw Markdown instead of orphaning every indented task.
+    tasks.push(...parseRawFileTasks(file.path, lines, mtime));
   }
   return tasks;
 }

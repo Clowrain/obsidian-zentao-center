@@ -17,6 +17,8 @@ function compilePure() {
       "src/parser.ts",
       "src/dates.ts",
       "src/tags.ts",
+      "src/task-tree.ts",
+      "src/query/filter.ts",
       "--bundle",
       "--format=esm",
       "--platform=node",
@@ -41,9 +43,30 @@ const {
   statusFromCheckbox,
   shortHash,
   parseTaskFromLine,
+  parseFileTasks,
 } = await import("../test/.compiled/parser.js");
+const { deriveEffectiveTasks } = await import("../test/.compiled/task-tree.js");
+const { applyQueryFilters } = await import("../test/.compiled/filter.js");
 const { addDays, startOfWeek, endOfMonth, shiftMonth, resolveWhen, isValidISO } =
   await import("../test/.compiled/dates.js");
+
+function fakeAppForContent(content, cache = null) {
+  return {
+    metadataCache: {
+      getFileCache: () => cache,
+    },
+    vault: {
+      cachedRead: async () => content,
+    },
+  };
+}
+
+function fakeFile(path = "test.md") {
+  return {
+    path,
+    stat: { mtime: 1000 },
+  };
+}
 
 test("parseDurationToMinutes", () => {
   assert.equal(parseDurationToMinutes("90m"), 90);
@@ -117,6 +140,43 @@ test("parseTaskLine — strips trailing CR (CRLF)", () => {
 test("parseTaskLine — non-task returns null", () => {
   assert.equal(parseTaskLine("- plain bullet"), null);
   assert.equal(parseTaskLine("# heading"), null);
+});
+
+test("US-168: parseFileTasks raw fallback ignores fenced code block task examples", async () => {
+  const content = [
+    "Before",
+    "```",
+    "- [ ] Code example is not a task",
+    "- [x] Completed example is not a task either",
+    "```",
+    "- [ ] Real task",
+  ].join("\n");
+
+  const tasks = await parseFileTasks(fakeAppForContent(content, null), fakeFile());
+
+  assert.deepEqual(tasks.map((task) => task.title), ["Real task"]);
+});
+
+test("US-143/145: parseFileTasks raw fallback preserves parent-child hierarchy before metadata is indexed", async () => {
+  const content = [
+    "- [x] Done parent",
+    "    - [ ] Todo child",
+    "    - [ ] Another child",
+  ].join("\n");
+
+  const parsed = await parseFileTasks(fakeAppForContent(content, null), fakeFile());
+  const effective = deriveEffectiveTasks(parsed);
+
+  assert.equal(parsed[1].parentLine, 0);
+  assert.equal(parsed[2].parentLine, 0);
+  assert.deepEqual(parsed[0].childrenLines, [1, 2]);
+  assert.equal(effective[1].effectiveStatus, "done");
+  assert.equal(effective[2].effectiveStatus, "done");
+  assert.equal(effective[1].isTopLevelInQuery, false);
+  assert.equal(effective[2].isTopLevelInQuery, false);
+
+  const todo = applyQueryFilters(effective, { status: "todo" }, 1);
+  assert.deepEqual(todo.map((task) => task.title), []);
 });
 
 test("cleanTitle — strips emoji dates + tags + inline fields + block anchors", () => {
