@@ -2,61 +2,52 @@
 
 [简体中文](https://github.com/CorrectRoadH/obsidian-task-center/blob/main/README.zh-CN.md) / [English](https://github.com/CorrectRoadH/obsidian-task-center/blob/main/README.md)
 
-Task Center is an Obsidian plugin that adds a daily/weekly/monthly task board, parent-child task rendering, natural-language Quick Add, mobile gestures, and an AI-friendly CLI on top of Obsidian Tasks markdown.
+Task Center is an Obsidian plugin for planning markdown tasks on a daily, weekly, and monthly board.
 
-It does not create a new database or task format. Your source of truth stays in markdown:
+It keeps your tasks in plain markdown. No database. No private task format.
 
 ```markdown
 - [ ] Plan the launch #work ⏳ 2026-05-15 📅 2026-05-20 [estimate:: 90m]
     - [ ] Draft release notes [estimate:: 30m]
 - [x] Ship the fix ✅ 2026-04-28 [actual:: 45m]
-- [-] Retired idea ❌ 2026-04-28
 ```
 
 ![Week drag demo](screenshots/week-drag.gif)
 
 ![Month drag demo](screenshots/month-drag.gif)
 
-![Month view](screenshots/month.png)
+## What It Adds
 
-## Why Task Center
-
-Obsidian Tasks owns the task syntax and query model. Task Center keeps that foundation and adds the working surfaces that are awkward to build in a note:
-
-| Need | Task Center adds |
-| --- | --- |
-| Plan the week | A full-tab board with Today, Week, Month, Completed, and Unscheduled views |
-| Move work around | Drag tasks between dates, nest under another task, or abandon without deleting markdown |
-| Handle task trees | Recursive parent-child cards with inherited schedule/status semantics |
-| Capture quickly | Spotlight-style Quick Add with English and Chinese date parsing |
-| Review estimates | Estimate vs actual summaries via inline fields such as `[estimate::]` and `[actual::]` |
-| Use mobile | Phone layout, long-press menus, swipe actions, and keyboard-safe Quick Add |
-| Let an AI agent help | Stable `obsidian task-center:*` CLI verbs with greppable output |
+- A full-page task board: Today, Week, Month, Completed, and Unscheduled.
+- Drag-and-drop scheduling, nesting, and abandon actions.
+- Parent-child task cards with inherited schedule and status.
+- Spotlight-style Quick Add with English and Chinese date parsing.
+- Estimate and actual-time summaries from inline fields.
+- Mobile layout with long-press menus and swipe actions.
+- Agent-friendly `obsidian task-center:*` CLI commands.
 
 ## Install
 
-Install Task Center from Obsidian Community Plugins:
+Install from Obsidian Community Plugins:
 
-[Click here to install Task Center](https://community.obsidian.md/plugins/task-center)
+[Install Task Center](https://community.obsidian.md/plugins/task-center)
 
-### Prerequisites
+Before using it:
 
-1. Install and enable at least one task-format companion: [Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) or [Dataview](https://github.com/blacksmithgu/obsidian-dataview). Task Center reads and writes both Tasks emoji and Dataview inline-field task metadata, and expects one of those companion plugins to render or query the same metadata elsewhere in your vault.
-2. Enable Obsidian's built-in **Daily Notes** core plugin and set its "New file location". Quick Add writes new tasks to today's Daily Note and refuses to fall back to an inbox when Daily Notes is missing or misconfigured.
+1. Enable at least one task-format companion: [Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks) or [Dataview](https://github.com/blacksmithgu/obsidian-dataview).
+2. Enable Obsidian's built-in **Daily Notes** core plugin and set its "New file location". Quick Add writes new tasks to today's Daily Note.
 
 ## Quick Start
 
-1. Write or keep using normal Tasks-style checkboxes in any markdown file.
-2. Add schedule, deadline, estimate, and actual-time metadata only when useful:
+1. Keep writing normal markdown checkboxes anywhere in your vault.
 
    ```markdown
    - [ ] Review PR #work ⏳ today [estimate:: 30m]
    - [ ] Renew passport 📅 2026-05-30
    ```
 
-3. Open Task Center from the ribbon icon, command palette, or `Ctrl/Cmd+Shift+T`.
-
-4. Use **Quick Add** with `Ctrl/Cmd+T` inside the board:
+2. Open Task Center from the ribbon icon, command palette, or `Ctrl/Cmd+Shift+T`.
+3. Use Quick Add with `Ctrl/Cmd+T` inside the board.
 
    ```text
    Review beta feedback #work tomorrow [estimate:: 25m]
@@ -65,62 +56,44 @@ Install Task Center from Obsidian Community Plugins:
 
 Natural-language dates such as `today`, `tomorrow`, `今天`, and `周六` are resolved to ISO dates before writing markdown.
 
-## Views
+## Task Formats
 
-- **Today**: overdue, scheduled-today, and unscheduled-recommendation groups with quick actions.
-- **Week**: seven columns, today highlighted, with per-day task counts and estimate totals.
-- **Month**: calendar grid with date drop zones.
-- **Completed**: review timeline grouped by week with estimate-vs-actual summaries.
-- **Unscheduled**: task pool sorted by deadline and creation order.
-
-Drag a card to a date to change `⏳`. Drop it onto another card to nest it. Drop it on the abandon target to mark it `[-] ❌` instead of deleting the source line.
-
-## Syntax
-
-Task Center supports the two task-format flavors used by Obsidian Tasks:
+Task Center reads both Tasks emoji fields and Dataview inline fields:
 
 ```markdown
-- [ ] Tasks emoji flavor ⏳ 2026-05-15 📅 2026-05-20 ➕ 2026-05-01 [estimate:: 90m]
-- [ ] Dataview flavor [scheduled:: 2026-05-15] [due:: 2026-05-20] [created:: 2026-05-01] [estimate:: 90m]
+- [ ] Tasks emoji ⏳ 2026-05-15 📅 2026-05-20 ➕ 2026-05-01
+- [ ] Dataview [scheduled:: 2026-05-15] [due:: 2026-05-20] [created:: 2026-05-01]
 ```
 
-Reading is intentionally permissive: the board recognizes both flavors in the same vault. Writing is controlled by **Settings → Task Center → Task format flavor**. Dragging to a date, date prompts, Quick Add, and CLI mutations write new task metadata in that selected flavor. When Task Center rewrites a field, it removes the other flavor for that same field so stale dates do not keep winning later.
+The write format is controlled by **Settings → Task Center → Task format flavor**.
 
-| Meaning | Tasks emoji flavor | Dataview flavor | Task Center support |
-| --- | --- | --- | --- |
-| Scheduled | `⏳ YYYY-MM-DD` | `[scheduled:: YYYY-MM-DD]` | read/write |
-| Due / deadline | `📅 YYYY-MM-DD` | `[due:: YYYY-MM-DD]` | read/write |
-| Start | `🛫 YYYY-MM-DD` | `[start:: YYYY-MM-DD]` | read/preserve |
-| Created | `➕ YYYY-MM-DD` | `[created:: YYYY-MM-DD]` | read/write on add |
-| Completed | `✅ YYYY-MM-DD` | `[completion:: YYYY-MM-DD]` | read/write |
-| Cancelled / abandoned | `❌ YYYY-MM-DD` | `[cancelled:: YYYY-MM-DD]` | read/write with `[-]` status |
-| Recurrence | `🔁 every week` | `[repeat:: every week]` | read/preserve |
-| Priority | `🔺 ⏫ 🔼 🔽 ⏬` | `[priority:: highest/high/medium/low/lowest]` | read/preserve |
+- **Tasks emoji** writes fields such as `⏳`, `📅`, `➕`, `✅`, and `❌`.
+- **Dataview inline fields** writes fields such as `[scheduled::]`, `[due::]`, `[created::]`, `[completion::]`, and `[cancelled::]`.
 
-If both flavors for the same date field are present on one line, the Tasks emoji value wins in Task Center. This matches a conservative “do not reinterpret old emoji data” rule while still letting Dataview-format vaults work naturally.
+Drag scheduling, date prompts, Quick Add, and CLI mutations all use the selected flavor. If both formats exist for the same field on one line, the Tasks emoji value wins.
 
-Estimate and actual-time summaries use inline fields such as `[estimate:: 90m]`, `[estimate:: 1h30m]`, and `[actual:: 75m]`. Tags and unknown inline fields are preserved byte-for-byte.
+Estimate summaries use regular inline fields:
+
+```markdown
+[estimate:: 90m] [estimate:: 1h30m] [actual:: 75m]
+```
+
+Unknown inline fields and tags are preserved.
 
 ## CLI
 
-Task Center registers verbs with Obsidian's native CLI. There is no separate wrapper script.
+Task Center registers commands with Obsidian's native CLI:
 
 ```bash
-obsidian task-center
 obsidian task-center:list scheduled=today
-obsidian task-center:list scheduled=unscheduled tag='#work'
 obsidian task-center:show ref=Tasks/Inbox.md:L42
 obsidian task-center:add text="Review launch checklist" tag='#work' scheduled=2026-05-15
 obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=2026-05-16
 obsidian task-center:done ref=Tasks/Inbox.md:L42 at=2026-04-28
-obsidian task-center:review days=7
 obsidian task-center:review days=7 format=json
-obsidian task-center:query-list
-obsidian task-center:query-run id=preset-today view=week
-obsidian task-center:query-set-default id=preset-week
 ```
 
-CLI output is greppable and agent-friendly: list rows start with stable ids, writes are idempotent, mutations print `before` / `after` lines, and Query Tab commands can list, run, create, update, rename, copy, hide, delete, and set defaults by stable id.
+CLI output is stable and greppable: task ids use `path:Lnn`, writes are idempotent, and mutations print `before` / `after` lines.
 
 To install the companion AI skill:
 
@@ -128,29 +101,16 @@ To install the companion AI skill:
 npx skills add CorrectRoadH/obsidian-task-center
 ```
 
-## Crabbox
-
-This repository includes repo-local Crabbox onboarding for remote verification on Blacksmith Testboxes.
-
-```bash
-crabbox warmup
-crabbox run -- pnpm run typecheck
-crabbox run -- pnpm run test:unit
-crabbox run -- pnpm run test:e2e
-```
-
-The default repo config lives in `.crabbox.yaml` and points at `.github/workflows/blacksmith-testbox.yml`. If your Blacksmith account needs an explicit org, export `CRABBOX_BLACKSMITH_ORG` before `crabbox warmup`.
-
 ## Settings
 
-| Setting | Default | What it controls |
+| Setting | Default | Controls |
 | --- | --- | --- |
-| Default view | Week | Which tab opens first |
+| Default view | Week | First tab shown when the board opens |
 | Week starts on | Monday | Week and calendar boundaries |
-| Open Task Center on startup | Off | Whether the board opens with the vault |
-| Stamp created date | On | Whether new tasks get `➕ YYYY-MM-DD` |
-| Task format flavor | Tasks emoji | Whether Task Center writes Tasks emoji metadata or Dataview inline fields |
-| Force mobile layout | Off | Use the phone layout on wider screens |
+| Open on startup | Off | Whether Task Center opens with the vault |
+| Stamp created date | On | Whether new tasks get a created date |
+| Task format flavor | Tasks emoji | Tasks emoji vs Dataview inline-field writes |
+| Force mobile layout | Off | Use phone layout on wider screens |
 
 ## License
 

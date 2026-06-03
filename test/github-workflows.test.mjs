@@ -47,6 +47,12 @@ test("US-602: CI e2e script covers source-edit regressions, not only board-basic
   assert.match(script, /--spec test\/e2e\/specs\/source-edit-dialog\.e2e\.ts/);
 });
 
+test("US-111: CI e2e script covers Dataview flavor user journeys", async () => {
+  const pkg = JSON.parse(await readFile("package.json", "utf8"));
+  const script = pkg.scripts["test:e2e:ci"];
+  assert.match(script, /--spec test\/e2e\/specs\/dataview-format\.e2e\.ts/);
+});
+
 test("release workflow attests Obsidian release assets", async () => {
   const workflow = await readWorkflow("release.yml");
 
