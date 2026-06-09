@@ -2,8 +2,8 @@ import { App, Notice, PluginSettingTab, Setting, FuzzySuggestModal } from "obsid
 import { t as tr } from "./i18n";
 import type TaskCenterPlugin from "./main";
 import { restoreBuiltinQueryPresets, visibleQueryPresets } from "./saved-views";
-import { DEFAULT_ZENTAO_SETTINGS, type ZentaoSettings } from "./zentao/types";
-import { ZentaoClient, type ZentaoExecution } from "./zentao/client";
+import { DEFAULT_ZENTAO_SETTINGS } from "./zentao/types";
+import { ZentaoClient } from "./zentao/client";
 import { encrypt, decrypt, isCryptoAvailable } from "./zentao/crypto";
 
 const SKILL_INSTALL_COMMAND = "npx skills add CorrectRoadH/obsidian-task-center";
@@ -229,7 +229,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
       .setName("账号")
       .addText((txt) =>
         txt
-          .setPlaceholder("admin")
+          .setPlaceholder("Account")
           .setValue(zentao?.account ?? "")
           .onChange(async (v) => {
             this.ensureZentao();
@@ -278,7 +278,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
             btn.setButtonText("连接中…").setDisabled(true);
             try {
               const password = await this.getZentaoPassword();
-              const client = new ZentaoClient(zs.serverUrl, zs.account, async () => password);
+              const client = new ZentaoClient(zs.serverUrl, zs.account, () => Promise.resolve(password));
               const result = await client.testConnection();
               if (result.ok) {
                 new Notice("连接成功");
@@ -349,7 +349,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
             btn.setButtonText("加载中…").setDisabled(true);
             try {
               const password = await this.getZentaoPassword();
-              const client = new ZentaoClient(zs.serverUrl, zs.account, async () => password);
+              const client = new ZentaoClient(zs.serverUrl, zs.account, () => Promise.resolve(password));
               const projects = await client.getProjects();
               const executions = await client.getExecutions();
               const projectMap = new Map(projects.map((p) => [p.id, p.name]));
@@ -382,8 +382,8 @@ export class TaskCenterSettingTab extends PluginSettingTab {
       .setDesc("禅道任务写入哪里")
       .addDropdown((dd) =>
         dd
-          .addOption("daily-note", "Daily Note（写入当天日记）")
-          .addOption("specified-file", "指定文件")
+          .addOption("daily-note", "Daily note（写入当天日记）")
+          .addOption("specified-file", "Specified file")
           .setValue(zentao?.syncTarget ?? "daily-note")
           .onChange(async (v) => {
             this.ensureZentao();
@@ -400,11 +400,10 @@ export class TaskCenterSettingTab extends PluginSettingTab {
         .setDesc(zentao.specifiedFilePath || "未选择")
         .addButton((btn) =>
           btn.setButtonText("选择文件").onClick(() => {
-            new FileSuggestModal(this.app, async (path: string) => {
+            new FileSuggestModal(this.app, (path: string) => {
               this.ensureZentao();
               this.plugin.settings.zentao!.specifiedFilePath = path;
-              await this.plugin.saveSettings();
-              this.display();
+              this.plugin.saveSettings().then(() => this.display()).catch(() => {});
             }).open();
           }),
         );
@@ -449,7 +448,7 @@ export class TaskCenterSettingTab extends PluginSettingTab {
 class FileSuggestModal extends FuzzySuggestModal<string> {
   constructor(
     app: App,
-    private onSelect: (path: string) => Promise<void>,
+    private onSelect: (path: string) => void,
   ) {
     super(app);
     this.setPlaceholder("选择 Markdown 文件…");
@@ -464,7 +463,7 @@ class FileSuggestModal extends FuzzySuggestModal<string> {
     return item;
   }
 
-  async onChooseItem(item: string): Promise<void> {
-    await this.onSelect(item);
+  onChooseItem(item: string): void {
+    this.onSelect(item);
   }
 }

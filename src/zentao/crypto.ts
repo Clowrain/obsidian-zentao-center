@@ -40,6 +40,12 @@ function base64ToArray(base64: string): Uint8Array {
 	return bytes;
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+	const buffer = new ArrayBuffer(bytes.byteLength);
+	new Uint8Array(buffer).set(bytes);
+	return buffer;
+}
+
 /** Encrypt a plaintext string. Returns base64-encoded IV and ciphertext separately. */
 export async function encrypt(
 	plaintext: string,
@@ -71,9 +77,9 @@ export async function decrypt(
 	const ciphertext = base64ToArray(encrypted);
 	const ivBytes = base64ToArray(iv);
 	const plaintext = await crypto.subtle.decrypt(
-		{ name: ENCRYPTION_ALGO, iv: ivBytes },
+		{ name: ENCRYPTION_ALGO, iv: toArrayBuffer(ivBytes) },
 		key,
-		ciphertext,
+		toArrayBuffer(ciphertext),
 	);
 	return new TextDecoder().decode(plaintext);
 }

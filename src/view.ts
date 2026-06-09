@@ -1156,7 +1156,11 @@ export class TaskCenterView extends ItemView {
       const zentaoBtn = utility.createEl("button", { text: "🔄 禅道" });
       zentaoBtn.addClass("bt-zentao-btn");
       zentaoBtn.title = "从禅道加载任务";
-      zentaoBtn.addEventListener("click", () => this.loadFromZentao());
+      zentaoBtn.addEventListener("click", () => {
+        this.loadFromZentao().catch((e) => {
+          new Notice(`禅道加载失败：${e instanceof Error ? e.message : String(e)}`);
+        });
+      });
     }
 
     // US-163: toolbar `+` opens Quick Add, which writes the new line to
@@ -5443,7 +5447,7 @@ export class TaskCenterView extends ItemView {
     }
 
     this.loadingFromZentao = true;
-    const btn = this.containerEl.querySelector(".bt-zentao-btn") as HTMLElement | null;
+    const btn = this.containerEl.querySelector<HTMLElement>(".bt-zentao-btn");
     if (btn) {
       btn.textContent = "加载中…";
       btn.addClass("is-loading");
@@ -5463,7 +5467,7 @@ export class TaskCenterView extends ItemView {
         password = zentao.encryptedPassword;
       }
 
-      const client = new ZentaoClient(zentao.serverUrl, zentao.account, async () => password);
+      const client = new ZentaoClient(zentao.serverUrl, zentao.account, () => Promise.resolve(password));
 
       // Determine date range from current tab (US-810)
       const activePreset = this.getActiveTabPreset();
@@ -5503,9 +5507,7 @@ export class TaskCenterView extends ItemView {
   }
 
   private getActiveTabPreset(): string | undefined {
-    const tabId = this.state.activeTabId;
-    const preset = this.plugin.settings.queryPresets.find((p) => p.id === tabId);
-    return preset?.view?.preset;
+    return this.activeSavedView().view.preset;
   }
 
 }

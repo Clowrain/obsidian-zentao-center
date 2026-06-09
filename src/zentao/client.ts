@@ -63,7 +63,6 @@ export class ZentaoError extends Error {
 
 // ── Client ──
 
-const REQUEST_TIMEOUT_MS = 15_000; // US-825
 
 export class ZentaoClient {
 	private token: string | null = null;

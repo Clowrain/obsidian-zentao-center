@@ -2,7 +2,7 @@
 // Coordinates: fetch tasks → map to Obsidian format → dedup → write to target file.
 // Uses vault.process for atomic writes (consistent with writer.ts).
 
-import type { App, Vault } from "obsidian";
+import type { App } from "obsidian";
 import { ZentaoClient } from "./client";
 import { mapZentaoTask, extractZentaoId, hasTaskChanged, type MapperOptions, type ZentaoTask } from "./mapper";
 import type { ZentaoSettings } from "./types";
@@ -78,16 +78,35 @@ function buildZentaoIndex(content: string): Map<number, ExistingLine> {
 
 // ── Daily Note path resolution ──
 
+interface DailyNotesOptions {
+	folder?: string;
+	format?: string;
+	extension?: string;
+}
+
+interface DailyNotesPluginInstance {
+	options?: DailyNotesOptions;
+}
+
+interface DailyNotesPluginEntry {
+	enabled?: boolean;
+	instance?: DailyNotesPluginInstance;
+}
+
+interface AppWithInternalPlugins extends App {
+	internalPlugins?: {
+		getPluginById(id: string): DailyNotesPluginEntry | undefined;
+	};
+}
+
 function getDailyNotePath(app: App): string | null {
-	// @ts-expect-error — Obsidian internal API for Daily Notes plugin
-	const dailyNotesPlugin = app.internalPlugins?.getPluginById("daily-notes");
+	const internalPlugins = (app as AppWithInternalPlugins).internalPlugins;
+	const dailyNotesPlugin = internalPlugins?.getPluginById("daily-notes");
 	if (!dailyNotesPlugin?.enabled) return null;
-	// @ts-expect-error
-	const config = dailyNotesPlugin?.instance?.options;
+	const config = dailyNotesPlugin.instance?.options;
 	if (!config?.folder) return null;
 	const today = todayISO();
 	const fmt = config.format || "YYYY-MM-DD";
-	// Simple replacement for common formats
 	const fileName = fmt
 		.replace("YYYY", today.slice(0, 4))
 		.replace("MM", today.slice(5, 7))
