@@ -863,7 +863,359 @@ CI 额外建议检查：
 - CSS 无硬编码颜色、无 `transition: all`。
 - i18n 字符串不包含示例 hashtag / inline field 语法。
 
-## 15. 实现不变量清单
+## 15. 禅道任务集成
+
+### 15.1 架构定位
+
+禅道集成是**外部数据导入通道**，不改变核心架构原则。导入后的任务与手动创建的任务完全等价，受同一份 Query DSL、同一套 View、同一个 Writer 管理。
+
+关键约束：
+
+1. **不引入新数据源**：禅道任务导入后转为标准 Markdown 任务行，此后与 Obsidian 原生任务无区别。（US-813）
+2. **不改变缓存架构**：导入通过 `writer.ts` 写入文件，触发正常的 vault modify → cache invalidate 链路。（US-818）
+3. **不引入后台常驻**：无定时器、无轮询。用户点击按钮触发一次性同步。（US-809）
+4. **可测试纯逻辑优先**：API 客户端、映射、同步、加密均为无 DOM 纯逻辑，可独立单测。
+
+### 15.2 新增模块
+
+```text
+src/
+├─ zentao/
+│  ├─ crypto.ts        # AES-256-GCM 加密/解密（US-802 / US-821）
+│  ├─ client.ts        # 禅道 HTTP 客户端：认证、项目/执行列表、任务拉取（US-801~806）
+│  ├─ mapper.ts        # 禅道任务 → Obsidian 任务行映射（US-813~815）
+│  └─ sync.ts          # 同步编排：去重、增量、写入（US-816~818）
+├─ settings.ts         # 扩展：禅道连接配置区（US-801~808）
+├─ view.ts             # 扩展：工具栏加载按钮（US-809~812）
+├─ types.ts            # 扩展：ZentaoSettings 类型
+└─ i18n.ts             # 扩展：禅道相关文案
+```
+
+### 15.3 数据模型扩展
+
+#### 15.3.1 ZentaoSettings
+
+```ts
+interface ZentaoSettings {
+  /** 禅道服务器地址，如 https://zentao.example.com */
+  serverUrl: string;
+  /** AES-256-GCM 加密后的密码（base64） */
+  encryptedPassword: string;
+  /** 加密 IV（base64），每次加密随机生成 */
+  encryptionIv: string;
+  /** 禅道账号 */
+  account: string;
+  /** 同步模式：手动选执行 / 全部指派给我 */
+  syncMode: "manual" | "assignedtome";
+  /** 手动模式选中的执行 ID 列表 */
+  selectedExecutionIds: number[];
+  /** 同步目标：daily-note 或指定文件路径 */
+  syncTarget: "daily-note" | "specified-file";
+  /** 指定文件模式的 vault 相对路径 */
+  specifiedFilePath: string;
+  /** 执行列表缓存（避免每次打开设置都请求） */
+  executionListCache: ZentaoExecution[] | null;
+  /** 执行列表缓存时间戳 */
+  executionListCacheTime: number | null;
+}
+```
+
+`ZentaoSettings` 嵌入 `PluginSettings`：
+
+```ts
+interface PluginSettings {
+  // ... 现有字段 ...
+  zentao: ZentaoSettings | null; // null = 未配置禅道
+}
+```
+
+#### 15.3.2 禅道 API 响应类型
+
+```ts
+/** POST /tokens 响应 */
+interface ZentaoTokenResponse {
+  token: string;
+}
+
+/** 执行（迭代/Sprint）摘要 */
+interface ZentaoExecution {
+  id: number;
+  project: number;
+  name: string;
+  status: string;   // wait | doing | suspended | closed
+  begin: string;    // YYYY-MM-DD
+  end: string;      // YYYY-MM-DD
+}
+
+/** 任务详情（v1 /v2 共用字段子集） */
+interface ZentaoTask {
+  id: number;
+  project: number;
+  execution: number;
+  parent: number;
+  name: string;
+  type: string;       // devel | design | test | study | discuss | ui | affair | misc
+  pri: number;        // 1~4
+  status: string;     // wait | doing | done | closed | cancel
+  deadline: string;   // YYYY-MM-DD 或空
+  estStarted: string; // YYYY-MM-DD 或空
+  estimate: string;   // 浮点数字符串，小时
+  consumed: string;   // 浮点数字符串，小时
+  left: string;
+  desc: string;
+  assignedTo: string; // 用户账号
+  openedBy: string;
+  openedDate: string;
+  finishedBy: string;
+  finishedDate: string;
+}
+```
+
+### 15.4 加密方案
+
+`zentao/crypto.ts` 负责 AES-256-GCM 加密/解密：
+
+```ts
+// 加密 key 派生：固定种子 + vault 路径 → SHA-256 → 256-bit key
+async function deriveKey(vaultPath: string): Promise<CryptoKey>;
+
+// 加密：明文密码 → base64(IV + ciphertext + authTag)
+async function encrypt(plaintext: string, vaultPath: string): Promise<{ encrypted: string; iv: string }>;
+
+// 解密：base64 → 明文密码
+async function decrypt(encrypted: string, iv: string, vaultPath: string): Promise<string>;
+```
+
+实现约束：
+
+- 使用 `crypto.subtle`（Obsidian 内置 Chromium/Node 均支持）。
+- IV 每次 `crypto.getRandomValues(new Uint8Array(12))` 随机生成，与密文一起存储。
+- 固定种子硬编码在插件代码中。虽然插件开源导致 key 可提取，但阻止 `data.json` 明文泄露。（US-821）
+- `crypto.subtle` 不可用时（极端环境），降级为不存储密码，每次同步时弹出输入框。
+
+### 15.5 HTTP 客户端
+
+`zentao/client.ts` 封装所有禅道 API 调用：
+
+```ts
+class ZentaoClient {
+  private token: string | null = null;
+
+  constructor(private serverUrl: string, private account: string, private getPassword: () => Promise<string>) {}
+
+  /** 登录获取 token；成功则缓存到 this.token */
+  async login(): Promise<string>;
+
+  /** 确保有有效 token；过期自动重登 */
+  async ensureToken(): Promise<string>;
+
+  /** GET /v1/projects */
+  async getProjects(): Promise<ZentaoProject[]>;
+
+  /** GET /v1/executions?project={id} 或遍历所有项目 */
+  async getExecutions(projectId?: number): Promise<ZentaoExecution[]>;
+
+  /** GET /v1/executions/{id}/tasks?status=assignedtome&recPerPage=1000 */
+  async getExecutionTasks(executionId: number, status?: string): Promise<ZentaoTask[]>;
+
+  /** 拉取指定执行列表中指派给我的所有任务 */
+  async fetchAssignedToMeTasks(executionIds: number[]): Promise<ZentaoTask[]>;
+
+  /** 拉取所有活跃执行中指派给我的任务（syncMode=assignedtome） */
+  async fetchAllAssignedToMe(): Promise<ZentaoTask[]>;
+}
+```
+
+实现约束：
+
+- 使用 Obsidian `requestUrl`（`{method, url, headers, body, contentType}`），不使用 `fetch`。（Obsidian 插件标准做法，绕过 CORS）
+- 请求超时 15 秒。（US-825）
+- 401 自动重登一次；重登仍失败则抛出 `ZentaoAuthError`。（US-804）
+- 所有网络错误包装为 `ZentaoNetworkError` / `ZentaoApiError`，不暴露原始异常。
+- API URL 拼接：`{serverUrl}/api.php/v1/{path}`。v1 API 在开源版 ≥16.5 可用。（调研结论）
+
+### 15.6 任务映射
+
+`zentao/mapper.ts` 纯函数，禅道任务 → Obsidian 任务行字符串：
+
+```ts
+interface MapperOptions {
+  taskFormatFlavor: "tasks" | "dataview";
+}
+
+/** 将禅道任务映射为 Obsidian 任务行 */
+function mapZentaoTask(task: ZentaoTask, options: MapperOptions): string;
+
+/** 从已有 Obsidian 任务行提取禅道任务 ID（用于去重） */
+function extractZentaoId(line: string): number | null;
+
+/** 比较禅道任务与已有 Obsidian 任务行是否有变更 */
+function hasTaskChanged(zentaoTask: ZentaoTask, obsidianLine: string, options: MapperOptions): boolean;
+```
+
+映射规则（US-813）：
+
+| 禅道字段 | Tasks flavor | Dataview flavor |
+|---------|-------------|-----------------|
+| `name` | 标题文本 | 标题文本 |
+| `deadline`（非空） | `📅 YYYY-MM-DD` | `[due:: YYYY-MM-DD]` |
+| `estStarted`（非空） | `🛫 YYYY-MM-DD` | `[start:: YYYY-MM-DD]` |
+| `pri=1` | `⏫` | `[priority:: high]` |
+| `pri=2` | `🔼` | `[priority:: medium]` |
+| `pri=3` | `🔽` | `[priority:: low]` |
+| `pri=4` | `⏬` | `[priority:: lowest]` |
+| `estimate`（非零） | `[estimate:: Nh]` | `[estimate:: Nh]` |
+| `consumed`（非零） | `[actual:: Nh]` | `[actual:: Nh]` |
+| `id` | `[zentao:: {id}]` | `[zentao:: {id}]` |
+| `type`（非空） | `#zentao-{type}` | `#zentao-{type}` |
+| `status=done/closed` | `- [x] ✅ finishedDate` | `- [x] [completion:: finishedDate]` |
+| `status=cancel` | `- [-] ❌ closedDate` | `- [-] [cancelled:: closedDate]` |
+
+工时字段转换：禅道存储为小时浮点数，映射为 `Nh` 或 `NMm` 格式（与现有 `durationFields` 解析规则一致）。
+
+### 15.7 同步编排
+
+`zentao/sync.ts` 负责完整的同步流程：
+
+```ts
+interface SyncResult {
+  added: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+/** 执行一次完整的禅道同步 */
+async function syncZentaoTasks(
+  client: ZentaoClient,
+  settings: ZentaoSettings,
+  vault: Vault,
+  mapperOpts: MapperOptions,
+  dateRange?: { start: string; end: string },  // YYYY-MM-DD
+): Promise<SyncResult>;
+```
+
+同步流程：
+
+```text
+1. client.ensureToken()
+2. 根据 syncMode 拉取任务：
+   - manual: client.fetchAssignedToMeTasks(selectedExecutionIds)
+   - assignedtome: client.fetchAllAssignedToMe()
+3. 如果有 dateRange，客户端过滤 deadline ∈ [start..end]
+4. 确定写入目标文件：
+   - daily-note: 当天 Daily Note 路径
+   - specified-file: specifiedFilePath
+5. 读取目标文件已有任务行，构建 zentaoId → {line, rawLine} 索引
+6. 遍历禅道任务：
+   a. zentaoId 已存在且无变更 → skipped++
+   b. zentaoId 已存在且有变更 → 替换该行 → updated++
+   c. zentaoId 不存在 → 文件尾追加 → added++
+7. 通过 vault.process 原子写入
+8. 返回 SyncResult
+```
+
+去重依据：目标文件中含 `[zentao:: {id}]` 的行。（US-816）
+
+写入约束：
+
+- 每个文件的写入走 `vault.process`，与现有 writer 一致。（US-818）
+- 不删除已有任务行。禅道侧不再返回的任务保留在 Obsidian 中。（US-817）
+- Daily Notes 不可用时，daily-note 模式报错并跳过，不写 fallback。（与 US-701 一致）
+
+### 15.8 日期范围计算
+
+看板加载按钮根据当前 Query Tab 类型计算截止日期范围：（US-810）
+
+```ts
+function getDateRangeForTab(tabId: string, presets: QueryPreset[]): { start: string; end: string } | null {
+  // 今日 tab: deadline == today
+  // 本周 tab: deadline ∈ [monday..sunday]
+  // 本月 tab: deadline ∈ [month_start..month_end]
+  // 其它: null（不限制日期范围）
+}
+```
+
+使用 `dates.ts` 现有的 `todayISO`、`startOfWeek`、`addDays`、`shiftMonth` 等函数，不引入新日期逻辑。
+
+### 15.9 与现有模块的集成点
+
+| 现有模块 | 修改内容 | 影响范围 |
+|---------|---------|---------|
+| `types.ts` | 新增 `ZentaoSettings` 到 `PluginSettings` | 类型扩展，向后兼容 |
+| `settings.ts` | 新增禅道连接配置区 | 纯 UI 新增，不影响现有设置 |
+| `view.ts` | 工具栏新增加载按钮 | 按钮渲染 + 点击处理，不影响现有渲染逻辑 |
+| `main.ts` | `onload` 中初始化 `ZentaoClient`（条件：配置完整时） | 可选初始化，不影响现有启动流程 |
+| `writer.ts` | 不修改。同步模块直接使用 `vault.process` | 无侵入 |
+| `cache.ts` | 不修改。写入触发正常 vault modify → cache invalidate | 无侵入 |
+| `i18n.ts` | 新增禅道相关文案 | 纯数据新增 |
+
+依赖规则：
+
+| 新模块 | 可以依赖 | 禁止依赖 |
+|-------|---------|---------|
+| `zentao/crypto.ts` | 标准 `crypto.subtle` | Obsidian App、DOM |
+| `zentao/client.ts` | `requestUrl`、crypto（仅 `getPassword` 回调） | DOM、cache、writer |
+| `zentao/mapper.ts` | 纯函数，仅依赖类型定义 | Obsidian API、DOM |
+| `zentao/sync.ts` | client、mapper、`vault.process` | view、cache 直接读取 |
+
+### 15.10 错误体系
+
+```ts
+class ZentaoError extends Error {
+  constructor(message: string, public code: ZentaoErrorCode) { super(message); }
+}
+
+type ZentaoErrorCode =
+  | "network_error"       // 网络不可达 / 超时
+  | "auth_failed"         // 账号密码错误
+  | "token_expired"       // token 过期且重登失败
+  | "api_error"           // 禅道返回非 2xx
+  | "write_failed"        // 文件写入失败
+  | "not_configured"      // 禅道未配置
+  | "daily_notes_missing" // Daily Notes 不可用
+  ;
+```
+
+所有错误在 UI 层通过 `Notice` 展示用户友好的中文消息。错误码用于内部判断（如 `token_expired` 触发重登），不暴露给用户。（US-824）
+
+### 15.11 测试策略
+
+#### 单元测试
+
+新增 `test/zentao-crypto.test.mjs`、`test/zentao-mapper.test.mjs`、`test/zentao-sync.test.mjs`：
+
+| 测试文件 | 覆盖内容 |
+|---------|---------|
+| `zentao-crypto.test.mjs` | 加密→解密往返、不同 vault 路径产生不同 key、空字符串、特殊字符 |
+| `zentao-mapper.test.mjs` | 所有字段映射、Tasks/Dataview flavor 双路径、空值处理、工时转换、状态映射、`extractZentaoId`、`hasTaskChanged` |
+| `zentao-sync.test.mjs` | 去重逻辑、增量更新、日期范围过滤、Daily Notes 不可用报错、写入原子性（mock vault.process） |
+
+#### 集成测试
+
+- `ZentaoClient` 使用 mock HTTP 响应测试登录、token 过期重登、错误处理。
+- 完整同步流程使用 fake vault 测试端到端：拉取 → 映射 → 去重 → 写入 → 结果。
+
+#### 不做 E2E
+
+禅道集成涉及外部 API，E2e 无法在 CI 中稳定测试真实禅道服务器。通过单测 + 集成测试覆盖所有路径。
+
+### 15.12 禅道集成的实现不变量
+
+- [ ] 禅道配置为 `null` 时，不显示加载按钮，不初始化 client。
+- [ ] 密码不以明文存入 `data.json`。
+- [ ] 导入任务遵守 `taskFormatFlavor` 设置。
+- [ ] 每个文件写入走 `vault.process`。
+- [ ] 不删除已有任务行。
+- [ ] 去重依据为 `[zentao:: {id}]` inline field。
+- [ ] API 调用使用 `requestUrl`，不使用 `fetch`。
+- [ ] 网络请求超时 15 秒。
+- [ ] 401 自动重登最多一次，不无限循环。
+- [ ] Daily Notes 不可用时 daily-note 模式报错，不写 fallback。
+- [ ] 同步是同步阻塞的，但 UI 不阻塞（调用方在 async 上下文中使用）。
+- [ ] `zentao/` 下模块均为可测试纯逻辑。
+
+## 16. 实现不变量清单
 
 每次实现或重构至少检查：
 
