@@ -68,8 +68,13 @@ function extractProjectNameFromPath(path: string, projectFolder: string): string
 		// Fallback: just remove .md
 		return path.replace(/\.md$/, "");
 	}
-	const remaining = path.slice(prefix.length);
-	return remaining.replace(/\.md$/, "");
+	const remaining = path.slice(prefix.length).replace(/\.md$/, "");
+	// 如果路径是 "folder/folder" 形式（文件名与直接父文件夹名相同），只保留文件名
+	const parts = remaining.split("/");
+	if (parts.length >= 2 && parts[parts.length - 1] === parts[parts.length - 2]) {
+		return parts[parts.length - 1];
+	}
+	return remaining;
 }
 
 export function filterCompletedFromCache(tasks: ParsedTask[], thisWeek: WeeklyRange, projectFolder: string = "ZentaoTasks"): ZentaoTask[] {
