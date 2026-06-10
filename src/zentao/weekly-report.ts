@@ -57,7 +57,22 @@ export function filterCompletedThisWeek(tasks: ZentaoTask[], thisWeek: WeeklyRan
 	});
 }
 
-export function filterCompletedFromCache(tasks: ParsedTask[], thisWeek: WeeklyRange): ZentaoTask[] {
+/** Extract project name from task path based on configured projectFolder.
+ *  path: ${projectFolder}/${projectPath}.md (may be multi-level)
+ *  returns: projectPath without .md suffix
+ */
+function extractProjectNameFromPath(path: string, projectFolder: string): string {
+	// Remove projectFolder prefix and .md suffix
+	const prefix = projectFolder + "/";
+	if (!path.startsWith(prefix)) {
+		// Fallback: just remove .md
+		return path.replace(/\.md$/, "");
+	}
+	const remaining = path.slice(prefix.length);
+	return remaining.replace(/\.md$/, "");
+}
+
+export function filterCompletedFromCache(tasks: ParsedTask[], thisWeek: WeeklyRange, projectFolder: string = "ZentaoTasks"): ZentaoTask[] {
 	console.log("[weekly-report] filterCompletedFromCache: input tasks:", tasks.length);
 	const filtered = tasks.filter((task) => {
 		const zentaoMatch = task.rawLine?.match(/\[zentao::\s*(\d+)\]/);
@@ -68,22 +83,8 @@ export function filterCompletedFromCache(tasks: ParsedTask[], thisWeek: WeeklyRa
 		const completedDate = completedMatch[1];
 		return completedDate >= thisWeek.start && completedDate <= thisWeek.end;
 	}).map((task) => {
-		// 从 path 提取项目名称
-		// path 格式: ZentaoTasks/${projectName}/${executionName}.md
-		// 期望输出: projectName/executionName，如果两者相同则只返回一个
-		const pathParts = task.path.split("/");
-		let projectName = "";
-		if (pathParts.length > 2) {
-			const secondLevel = pathParts[1];  // projectName
-			const thirdLevel = pathParts[2].replace(/\.md$/, "");  // executionName (去掉 .md)
-			if (secondLevel === thirdLevel) {
-				projectName = secondLevel;  // 两个名字一致，只返回一个
-			} else {
-				projectName = `${secondLevel}/${thirdLevel}`;
-			}
-		} else if (pathParts.length > 1) {
-			projectName = pathParts[1].replace(/\.md$/, "");
-		}
+		// 从 path 提取项目名称，基于配置的 projectFolder
+		const projectName = extractProjectNameFromPath(task.path, projectFolder);
 		console.log("[weekly-report] task:", task.title, "path:", task.path, "projectName:", projectName);
 		return {
 			id: parseInt(task.rawLine?.match(/\[zentao::\s*(\d+)\]/)?.[1] || "0"),
@@ -112,7 +113,7 @@ export function filterCompletedFromCache(tasks: ParsedTask[], thisWeek: WeeklyRa
 	return filtered;
 }
 
-export function filterPlannedFromCache(tasks: ParsedTask[], nextWeek: WeeklyRange): ZentaoTask[] {
+export function filterPlannedFromCache(tasks: ParsedTask[], nextWeek: WeeklyRange, projectFolder: string = "ZentaoTasks"): ZentaoTask[] {
 	console.log("[weekly-report] filterPlannedFromCache: input tasks:", tasks.length);
 	const filtered = tasks.filter((task) => {
 		const zentaoMatch = task.rawLine?.match(/\[zentao::\s*(\d+)\]/);
@@ -126,20 +127,8 @@ export function filterPlannedFromCache(tasks: ParsedTask[], nextWeek: WeeklyRang
 		const deadline = deadlineMatch[1];
 		return deadline >= nextWeek.start && deadline <= nextWeek.end;
 	}).map((task) => {
-		// 从 path 提取项目名称
-		const pathParts = task.path.split("/");
-		let projectName = "";
-		if (pathParts.length > 2) {
-			const secondLevel = pathParts[1];
-			const thirdLevel = pathParts[2].replace(/\.md$/, "");
-			if (secondLevel === thirdLevel) {
-				projectName = secondLevel;
-			} else {
-				projectName = `${secondLevel}/${thirdLevel}`;
-			}
-		} else if (pathParts.length > 1) {
-			projectName = pathParts[1].replace(/\.md$/, "");
-		}
+		// 从 path 提取项目名称，基于配置的 projectFolder
+		const projectName = extractProjectNameFromPath(task.path, projectFolder);
 		// 提取 estimate（可能没有）
 		const estimateMatch = task.rawLine?.match(/\[estimate::\s*([\d.]+[hm]?)]/);
 		const estimate = estimateMatch ? estimateMatch[1] : "0";
@@ -346,6 +335,7 @@ export async function generateWeeklyReport(
 ): Promise<WeeklyReportResult> {
 	const cachedTasks = Array.isArray(tasks) ? tasks : [];
 	const resolvedWeekStartsOn = typeof tasks === "number" ? tasks : weekStartsOn;
+	const projectFolder = settings.projectFolder || "ZentaoTasks";
 	const zentaoTasks = settings.syncMode === "manual"
 		? await client.fetchAssignedToMeTasks(settings.selectedExecutionIds)
 		: await client.fetchAllAssignedToMe();
@@ -353,10 +343,10 @@ export async function generateWeeklyReport(
 	const { thisWeek, nextWeek } = getWeeklyDateRange(resolvedWeekStartsOn);
 	const weekNum = getWeekNumber(thisWeek.start);
 	const completed = cachedTasks.length > 0
-		? filterCompletedFromCache(cachedTasks, thisWeek)
+		? filterCompletedFromCache(cachedTasks, thisWeek, projectFolder)
 		: filterCompletedThisWeek(zentaoTasks, thisWeek);
 	const planned = cachedTasks.length > 0
-		? filterPlannedFromCache(cachedTasks, nextWeek)
+		? filterPlannedFromCache(cachedTasks, nextWeek, projectFolder)
 		: filterPlannedNextWeek(zentaoTasks, nextWeek);
 	const content = renderWeeklyReport(completed, planned, weekNum, thisWeek.start, resolvedWeekStartsOn);
 	console.log("[weekly-report] renderWeeklyReport output (first 500 chars):", content.slice(0, 500));
