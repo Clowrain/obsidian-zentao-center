@@ -268,6 +268,23 @@ const EN = {
   "zentao.syncFinish.failed": "已完成（禅道同步失败：{msg})",
   "zentao.syncFinish.error": "禅道同步出错：{msg}",
 
+  // US-826~830: Zentao finish confirmation modal
+  "zentao.finishModal.title": "确认完成禅道任务",
+  "zentao.finishModal.subtitle": "任务：{title}",
+  "zentao.finishModal.realStarted": "实际开始时间",
+  "zentao.finishModal.realStartedDesc": "格式：YYYY-MM-DD HH:mm",
+  "zentao.finishModal.finishedDate": "实际完成时间",
+  "zentao.finishModal.finishedDateDesc": "格式：YYYY-MM-DD HH:mm",
+  "zentao.finishModal.consumed": "消耗工时",
+  "zentao.finishModal.consumedDesc": "单位：小时",
+  "zentao.finishModal.assignedTo": "指派给",
+  "zentao.finishModal.assignedToDesc": "任务指派给谁",
+  "zentao.finishModal.comment": "备注",
+  "zentao.finishModal.commentDesc": "可选",
+  "zentao.finishModal.commentPlaceholder": "添加备注...",
+  "zentao.finishModal.cancel": "取消",
+  "zentao.finishModal.confirm": "确认完成",
+
   // task #43: date prompt hint line — bilingual EN baseline (the original
   // hard-coded string already mixed today/tomorrow with 明天/周六; we
   // preserve that mix here and route through tr() so a CN session gets
@@ -636,6 +653,23 @@ const ZH: Partial<typeof EN> = {
   "zentao.syncFinish.success": "已完成（已同步禅道）",
   "zentao.syncFinish.failed": "已完成（禅道同步失败：{msg})",
   "zentao.syncFinish.error": "禅道同步出错：{msg}",
+
+  // US-826~830: 禅道完成确认弹窗
+  "zentao.finishModal.title": "确认完成禅道任务",
+  "zentao.finishModal.subtitle": "任务：{title}",
+  "zentao.finishModal.realStarted": "实际开始时间",
+  "zentao.finishModal.realStartedDesc": "格式：YYYY-MM-DD HH:mm",
+  "zentao.finishModal.finishedDate": "实际完成时间",
+  "zentao.finishModal.finishedDateDesc": "格式：YYYY-MM-DD HH:mm",
+  "zentao.finishModal.consumed": "消耗工时",
+  "zentao.finishModal.consumedDesc": "单位：小时",
+  "zentao.finishModal.assignedTo": "指派给",
+  "zentao.finishModal.assignedToDesc": "任务指派给谁",
+  "zentao.finishModal.comment": "备注",
+  "zentao.finishModal.commentDesc": "可选",
+  "zentao.finishModal.commentPlaceholder": "添加备注...",
+  "zentao.finishModal.cancel": "取消",
+  "zentao.finishModal.confirm": "确认完成",
 
   // task #43: 日期弹窗提示
   "prompt.dateHint":

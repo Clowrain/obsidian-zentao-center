@@ -208,6 +208,7 @@ export function parseTaskFromLine(
   const completed = emojiCompleted ?? inlineDateField(inlineFields, "completion");
   const cancelled = emojiCancelled ?? inlineDateField(inlineFields, "cancelled");
   const created = emojiCreated ?? inlineDateField(inlineFields, "created");
+  const closed = inlineDateField(inlineFields, "closed");
   const estimate = durationFields.estimate ?? null;
   const actual = durationFields.actual ?? null;
 
@@ -232,6 +233,7 @@ export function parseTaskFromLine(
     completed,
     cancelled,
     created,
+    closed,
     recurrence,
     priority,
     calloutDepth,

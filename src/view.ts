@@ -29,6 +29,10 @@ import { animateOut } from "./anim";
 import { TabDwellTracker } from "./view/dnd";
 import { UndoStack, UndoEntry, UndoOp } from "./view/undo";
 import { extractZentaoId } from "./zentao/mapper";
+import { ZENTAO_PASSWORD_KEY } from "./zentao/types";
+import { ZentaoClient } from "./zentao/client";
+import { getDateRangeForTab, syncZentaoTasks } from "./zentao/sync";
+import { generateWeeklyReport } from "./zentao/weekly-report";
 import { BottomSheet } from "./view/bottom-sheet";
 import { attachCardGestures, attachLongPress } from "./view/touch";
 import { shouldCloseFilterPopoverOnPointerDown, isClickInsideFilterControls } from "./view/filter-popover";
@@ -1162,6 +1166,46 @@ export class TaskCenterView extends ItemView {
           new Notice(`禅道加载失败：${e instanceof Error ? e.message : String(e)}`);
         });
       });
+
+      // US-833: Weekly report button - only shown in Week view when Zentao is configured.
+      if (this.state.tab === "week") {
+        const weeklyReportBtn = utility.createEl("button", { text: "📊 周报" });
+        weeklyReportBtn.addClass("bt-weekly-report-btn");
+        weeklyReportBtn.title = "生成本周周报";
+        weeklyReportBtn.addEventListener("click", async () => {
+          try {
+            const password = await this.getZentaoPassword();
+            if (!password) {
+              new Notice("请先在设置中填写禅道密码");
+              return;
+            }
+            const client = new ZentaoClient(zentao.serverUrl, zentao.account, () => Promise.resolve(password));
+            const mapperOpts = {
+              taskFormatFlavor: this.plugin.settings.taskFormatFlavor,
+              serverUrl: zentao.serverUrl,
+            };
+            const activePreset = this.getActiveTabPreset() ?? "week";
+            const dateRange = getDateRangeForTab(activePreset, this.plugin.settings.weekStartsOn);
+            const syncResult = await syncZentaoTasks(client, zentao, this.app, mapperOpts, dateRange);
+            if (syncResult.errors.length > 0) {
+              new Notice(`同步禅道任务失败：${syncResult.errors.join("；")}`);
+              return;
+            }
+            await this.plugin.cache.ensureAll();
+            const cachedTasks = await this.plugin.cache.ensureAll();
+            const result = await generateWeeklyReport(
+              client,
+              zentao,
+              this.app,
+              cachedTasks,
+              this.plugin.settings.weekStartsOn,
+            );
+            new Notice(`周报已生成：${result.path}（完成 ${result.completedCount}，计划 ${result.plannedCount}）`);
+          } catch (e) {
+            new Notice(`生成周报失败：${e instanceof Error ? e.message : String(e)}`);
+          }
+        });
+      }
     }
 
     // US-163: toolbar `+` opens Quick Add, which writes the new line to
@@ -4396,18 +4440,31 @@ export class TaskCenterView extends ItemView {
     check.addEventListener("click", (e) => {
       void (async () => {
         e.stopPropagation();
-        await this.runWithRemoveAnim(t.id, async () => {
-          if (t.effectiveStatus === "done") {
+        if (t.effectiveStatus === "done") {
+          await this.runWithRemoveAnim(t.id, async () => {
             await this.api.undone(t.id);
-          } else {
-            await this.api.done(t.id);
-            // US-826~829: sync finish status to Zentao if this is a Zentao task
-            const zentaoId = extractZentaoId(t.rawLine);
-            if (zentaoId !== null) {
-              await this.syncZentaoFinish(zentaoId, t);
+          });
+        } else {
+          const zentaoId = extractZentaoId(t.rawLine);
+          if (zentaoId !== null) {
+            // US-826~830: Zentao task - show modal first, only mark done if API succeeds
+            const result = await this.showZentaoFinishModal(zentaoId, t);
+            if (result.success) {
+              await this.runWithRemoveAnim(t.id, async () => {
+                // Set actual time from Zentao consumed (if provided)
+                if (result.consumedMinutes && result.consumedMinutes > 0) {
+                  await this.api.actual(t.id, result.consumedMinutes);
+                }
+                await this.api.done(t.id);
+              });
             }
+          } else {
+            // Regular task - mark done directly
+            await this.runWithRemoveAnim(t.id, async () => {
+              await this.api.done(t.id);
+            });
           }
-        });
+        }
       })();
     });
 
@@ -4424,6 +4481,8 @@ export class TaskCenterView extends ItemView {
     if (t.estimate) meta.createSpan({ text: tr("meta.est", { dur: formatMinutes(t.estimate) }), cls: "bt-meta-est" });
     if (t.effectiveDeadline) meta.createSpan({ text: `📅${t.effectiveDeadline}`, cls: "bt-meta-deadline" });
     if (t.actual) meta.createSpan({ text: tr("meta.act", { dur: formatMinutes(t.actual) }), cls: "bt-meta-actual" });
+    // US-832: Show closed badge for Zentao closed tasks
+    if (t.closed) meta.createSpan({ text: `🔒已关闭`, cls: "bt-meta-closed" });
     // US-150: hide the `⏳ {date}` badge when the card is rendered in a
     // column whose day already implies it. Otherwise (unscheduled pool /
     // completed view / etc.) the badge stays — date isn't implied by
@@ -4872,6 +4931,8 @@ export class TaskCenterView extends ItemView {
             await work();
             this.scheduleRefresh();
           }
+          // US-826~830: sync deadline to Zentao after local schedule (non-blocking)
+          void this.syncZentaoDeadline(id, targetDate);
         } catch (err) {
           new Notice(tr("notice.error", { msg: (err as Error).message }), 4000);
           this.scheduleRefresh();
@@ -5361,17 +5422,42 @@ export class TaskCenterView extends ItemView {
     const m = new Menu();
     m.addItem((i) =>
       i.setTitle(task.effectiveStatus === "done" ? tr("ctx.markTodo") : tr("ctx.markDone")).onClick(async () => {
-        await this.runWithRemoveAnim(task.id, async () => {
-          if (task.effectiveStatus === "done") await this.api.undone(task.id);
-          else await this.api.done(task.id);
-        });
+        if (task.effectiveStatus === "done") {
+          await this.runWithRemoveAnim(task.id, async () => {
+            await this.api.undone(task.id);
+          });
+        } else {
+          const zentaoId = extractZentaoId(task.rawLine);
+          if (zentaoId !== null) {
+            // US-826~830: Zentao task - show modal first, only mark done if API succeeds
+            const result = await this.showZentaoFinishModal(zentaoId, task);
+            if (result.success) {
+              await this.runWithRemoveAnim(task.id, async () => {
+                // Set actual time from Zentao consumed (if provided)
+                if (result.consumedMinutes && result.consumedMinutes > 0) {
+                  await this.api.actual(task.id, result.consumedMinutes);
+                }
+                await this.api.done(task.id);
+              });
+            }
+          } else {
+            // Regular task - mark done directly
+            await this.runWithRemoveAnim(task.id, async () => {
+              await this.api.done(task.id);
+            });
+          }
+        }
       }),
     );
     m.addItem((i) =>
       i.setTitle(tr("ctx.scheduleToday")).onClick(async () => {
         const target = todayISO();
         if ((task.scheduled ?? null) !== target) {
-          await this.runWithRemoveAnim(task.id, () => this.api.schedule(task.id, target));
+          await this.runWithRemoveAnim(task.id, async () => {
+            await this.api.schedule(task.id, target);
+          });
+          // US-826~830: sync deadline to Zentao after local schedule
+          void this.syncZentaoDeadline(task.id, target);
         } else {
           this.scheduleRefresh();
         }
@@ -5381,7 +5467,11 @@ export class TaskCenterView extends ItemView {
       i.setTitle(tr("ctx.scheduleTomorrow")).onClick(async () => {
         const target = addDays(todayISO(), 1);
         if ((task.scheduled ?? null) !== target) {
-          await this.runWithRemoveAnim(task.id, () => this.api.schedule(task.id, target));
+          await this.runWithRemoveAnim(task.id, async () => {
+            await this.api.schedule(task.id, target);
+          });
+          // US-826~830: sync deadline to Zentao after local schedule
+          void this.syncZentaoDeadline(task.id, target);
         } else {
           this.scheduleRefresh();
         }
@@ -5390,7 +5480,11 @@ export class TaskCenterView extends ItemView {
     m.addItem((i) =>
       i.setTitle(tr("ctx.clearSchedule")).onClick(async () => {
         if (task.scheduled) {
-          await this.runWithRemoveAnim(task.id, () => this.api.schedule(task.id, null));
+          await this.runWithRemoveAnim(task.id, async () => {
+            await this.api.schedule(task.id, null);
+          });
+          // US-826~830: sync deadline to Zentao after local schedule
+          void this.syncZentaoDeadline(task.id, null);
         } else {
           this.scheduleRefresh();
         }
@@ -5412,6 +5506,15 @@ export class TaskCenterView extends ItemView {
           window.open(url, "_blank");
         }),
       );
+
+      // US-832: Close Zentao task (only for done tasks without closed field)
+      if (task.effectiveStatus === "done" && !task.closed) {
+        m.addItem((i) =>
+          i.setTitle("关闭禅道任务").onClick(async () => {
+            await this.showZentaoCloseModal(zentaoId, task);
+          }),
+        );
+      }
     }
 
     m.showAtMouseEvent(e);
@@ -5441,6 +5544,8 @@ export class TaskCenterView extends ItemView {
             await work();
             this.scheduleRefresh();
           }
+          // US-826~830: sync deadline to Zentao after local schedule (non-blocking)
+          void this.syncZentaoDeadline(task.id, resolved ?? null);
         })();
       },
     ).open();
@@ -5460,6 +5565,39 @@ export class TaskCenterView extends ItemView {
 
   private loadingFromZentao = false;
 
+  /** US-831: Get Zentao password from SecretStorage, with legacy migration. */
+  private async getZentaoPassword(): Promise<string> {
+    // First try SecretStorage
+    const secretPassword = await this.app.secretStorage.getSecret(ZENTAO_PASSWORD_KEY);
+    if (secretPassword) return secretPassword;
+
+    // Legacy migration: if SecretStorage is empty but we have encrypted password
+    const zentao = this.plugin.settings.zentao;
+    if (zentao?.encryptedPassword) {
+      const { decrypt } = await import("./zentao/crypto");
+      let password = "";
+      if (zentao.encryptionIv) {
+        const vaultPath = (this.app.vault.adapter as unknown as { basePath?: string }).basePath ?? "";
+        password = await decrypt(zentao.encryptedPassword, zentao.encryptionIv, vaultPath);
+      } else {
+        password = zentao.encryptedPassword;
+      }
+
+      if (password) {
+        // Migrate to SecretStorage
+        await this.app.secretStorage.setSecret(ZENTAO_PASSWORD_KEY, password);
+        // Clear legacy fields
+        zentao.encryptedPassword = "";
+        zentao.encryptionIv = "";
+        await this.plugin.saveSettings();
+        console.log("[zentao] Password migrated to SecretStorage");
+        return password;
+      }
+    }
+
+    return "";
+  }
+
   private async loadFromZentao(): Promise<void> {
     if (this.loadingFromZentao) return;
     const zentao = this.plugin.settings.zentao;
@@ -5477,17 +5615,9 @@ export class TaskCenterView extends ItemView {
 
     try {
       const { ZentaoClient } = await import("./zentao/client");
-      const { syncZentaoTasks, getDateRangeForTab } = await import("./zentao/sync");
-      const { decrypt } = await import("./zentao/crypto");
 
-      // Get decrypted password
-      let password: string;
-      if (zentao.encryptionIv) {
-        const vaultPath = (this.app.vault.adapter as unknown as { basePath?: string }).basePath ?? "";
-        password = await decrypt(zentao.encryptedPassword, zentao.encryptionIv, vaultPath);
-      } else {
-        password = zentao.encryptedPassword;
-      }
+      // US-831: Get password from SecretStorage (with legacy migration)
+      const password = await this.getZentaoPassword();
 
       const client = new ZentaoClient(zentao.serverUrl, zentao.account, () => Promise.resolve(password));
 
@@ -5532,45 +5662,154 @@ export class TaskCenterView extends ItemView {
     return this.activeSavedView().view.preset;
   }
 
-  // US-826~829: sync finish status to Zentao
-  private async syncZentaoFinish(zentaoId: number, task: EffectiveTask): Promise<void> {
+  // US-826~830: sync deadline to Zentao when scheduling a Zentao task
+  // Returns true if sync succeeded or task is not a Zentao task, false if sync failed
+  private async syncZentaoDeadline(taskId: string, deadline: string | null): Promise<boolean> {
+    // Get task to check if it's a Zentao task
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (!task) return true; // Task not found, skip sync
+
+    const zentaoId = extractZentaoId(task.rawLine);
+    if (zentaoId === null) return true; // Not a Zentao task, skip sync
+
     const zentao = this.plugin.settings.zentao;
-    if (!zentao?.serverUrl || !zentao?.account || !zentao?.encryptedPassword) {
+    if (!zentao?.serverUrl || !zentao?.account) {
+      return true; // Zentao not configured, skip sync silently
+    }
+
+    try {
+      const { ZentaoClient } = await import("./zentao/client");
+
+      // US-831: Get password from SecretStorage (with legacy migration)
+      const password = await this.getZentaoPassword();
+      if (!password) return true; // No password, skip sync silently
+
+      const client = new ZentaoClient(zentao.serverUrl, zentao.account, () => Promise.resolve(password));
+
+      // Get task's start date (estStarted) for Zentao constraint: deadline >= estStarted
+      const estStarted = task.start;
+
+      // Call updateTaskDeadline API with estStarted
+      const result = await client.updateTaskDeadline(zentaoId, deadline, estStarted);
+
+      if (result.success) {
+        new Notice(deadline ? `禅道截止日期已更新：${deadline}` : "禅道截止日期已清除");
+        return true;
+      } else {
+        new Notice(`禅道同步失败：${result.message ?? "未知错误"}，本地已更新`);
+        return false;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      new Notice(`禅道同步失败：${msg}，本地已更新`);
+      return false;
+    }
+  }
+
+  // US-826~830: show Zentao finish modal and call API
+  // Returns { success, consumedMinutes } if Zentao API succeeded, { success: false } if cancelled or failed
+  private async showZentaoFinishModal(zentaoId: number, task: EffectiveTask): Promise<{ success: boolean; consumedMinutes?: number }> {
+    const zentao = this.plugin.settings.zentao;
+    if (!zentao?.serverUrl || !zentao?.account) {
       // Zentao not configured, skip sync silently
+      return { success: false };
+    }
+
+    return new Promise<{ success: boolean; consumedMinutes?: number }>((resolve) => {
+      void (async () => {
+        try {
+          const { ZentaoClient } = await import("./zentao/client");
+          const { ZentaoFinishModal } = await import("./zentao/modal");
+
+          // US-831: Get password from SecretStorage (with legacy migration)
+          const password = await this.getZentaoPassword();
+          if (!password) {
+            resolve({ success: false });
+            return;
+          }
+
+          const client = new ZentaoClient(zentao.serverUrl, zentao.account, () => Promise.resolve(password));
+
+          // Show confirmation modal
+          new ZentaoFinishModal(
+            this.app,
+            client,
+            task,
+            zentao.account,
+            async (result) => {
+              if (!result.confirmed || !result.options) {
+                // User cancelled - show notice
+                new Notice("禅道同步已取消");
+                resolve({ success: false });
+                return;
+              }
+
+              // User confirmed - call finish API
+              const finishResult = await client.finishTask(zentaoId, {
+                realStarted: result.options.realStarted ?? undefined,
+                finishedDate: result.options.finishedDate,
+                currentConsumed: result.options.currentConsumed,
+                assignedTo: result.options.assignedTo,
+                comment: result.options.comment ?? undefined,
+              });
+
+              if (finishResult.success) {
+                new Notice(tr("zentao.syncFinish.success"));
+                // Use API-returned consumed hours (if available), otherwise use user input
+                // consumed is in hours, convert to minutes for actual field
+                const consumedHours = finishResult.consumed ?? parseFloat(result.options.currentConsumed) ?? 1;
+                const consumedMinutes = Math.round(consumedHours * 60);
+                resolve({ success: true, consumedMinutes });
+              } else {
+                new Notice(tr("zentao.syncFinish.failed", { msg: finishResult.message ?? "未知错误" }));
+                resolve({ success: false });
+              }
+            },
+          ).open();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          new Notice(tr("zentao.syncFinish.error", { msg }));
+          resolve({ success: false });
+        }
+      })();
+    });
+  }
+
+  // US-832: Close Zentao task with confirmation
+  private async showZentaoCloseModal(zentaoId: number, task: EffectiveTask): Promise<void> {
+    const zentao = this.plugin.settings.zentao;
+    if (!zentao?.serverUrl || !zentao?.account) {
+      new Notice("禅道未配置");
       return;
     }
 
     try {
       const { ZentaoClient } = await import("./zentao/client");
-      const { decrypt } = await import("./zentao/crypto");
 
-      // Get decrypted password
-      let password: string;
-      if (zentao.encryptionIv) {
-        const vaultPath = (this.app.vault.adapter as unknown as { basePath?: string }).basePath ?? "";
-        password = await decrypt(zentao.encryptedPassword, zentao.encryptionIv, vaultPath);
-      } else {
-        password = zentao.encryptedPassword;
+      // Get password from SecretStorage
+      const password = await this.getZentaoPassword();
+      if (!password) {
+        new Notice("禅道密码未设置");
+        return;
       }
 
       const client = new ZentaoClient(zentao.serverUrl, zentao.account, () => Promise.resolve(password));
 
-      // Extract estimate/actual from task for currentConsumed
-      const consumed = task.estimate?.toString() ?? task.actual?.toString() ?? "0";
-
-      const result = await client.finishTask(zentaoId, {
-        currentConsumed: consumed,
-        assignedTo: zentao.account,
-      });
+      // Call close API
+      const result = await client.closeTask(zentaoId, "任务已完成，关闭");
 
       if (result.success) {
-        new Notice(tr("zentao.syncFinish.success"));
+        // Set local closed field
+        await this.runWithRemoveAnim(task.id, async () => {
+          await this.api.closed(task.id);
+        });
+        new Notice("禅道任务已关闭");
       } else {
-        new Notice(tr("zentao.syncFinish.failed", { msg: result.message ?? "未知错误" }));
+        new Notice(`禅道关闭失败：${result.message ?? "未知错误"}`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new Notice(tr("zentao.syncFinish.error", { msg }));
+      new Notice(`禅道关闭失败：${msg}`);
     }
   }
 

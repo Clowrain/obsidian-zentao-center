@@ -4,10 +4,19 @@
 
 // ── Zentao API response types (subset used for mapping) ──
 
+export interface ZentaoUserRef {
+	id: number;
+	account: string;
+	avatar: string;
+	realname: string;
+}
+
 export interface ZentaoTask {
 	id: number;
 	project: number;
+	projectName?: string;  // Project name for file grouping
 	execution: number;
+	executionName?: string;
 	parent: number;
 	name: string;
 	type: string;       // devel | design | test | study | discuss | ui | affair | misc
@@ -17,10 +26,10 @@ export interface ZentaoTask {
 	estStarted: string; // YYYY-MM-DD or "" or "0000-00-00"
 	estimate: string;   // float hours as string
 	consumed: string;   // float hours as string
-	assignedTo: string;
-	openedBy: string;
+	assignedTo: string | ZentaoUserRef;
+	openedBy: string | ZentaoUserRef;
 	openedDate: string;
-	finishedBy: string;
+	finishedBy: string | ZentaoUserRef | null;
 	finishedDate: string; // datetime or "" or "0000-00-00 00:00:00"
 	closedDate: string;
 	desc: string;
@@ -32,6 +41,8 @@ export type TaskFormatFlavor = "tasks" | "dataview";
 
 export interface MapperOptions {
 	taskFormatFlavor: TaskFormatFlavor;
+	/** Zentao server URL for generating task detail link */
+	serverUrl?: string;
 }
 
 // ── Internal helpers ──
@@ -106,16 +117,10 @@ export function mapZentaoTask(task: ZentaoTask, options: MapperOptions): string 
 		tokens.push(isTasks ? priorityEmoji(task.pri) : `[priority:: ${priorityDataview(task.pri)}]`);
 	}
 
-	// Deadline (📅)
+	// Deadline (⏳)
 	const deadline = extractDate(task.deadline);
 	if (deadline) {
-		tokens.push(isTasks ? `📅 ${deadline}` : `[due:: ${deadline}]`);
-	}
-
-	// Start date (🛫)
-	const estStart = extractDate(task.estStarted);
-	if (estStart) {
-		tokens.push(isTasks ? `🛫 ${estStart}` : `[start:: ${estStart}]`);
+		tokens.push(isTasks ? `⏳ ${deadline}` : `[due:: ${deadline}]`);
 	}
 
 	// Estimate
@@ -142,12 +147,9 @@ export function mapZentaoTask(task: ZentaoTask, options: MapperOptions): string 
 		}
 	}
 
-	// Type tag
-	const typeTag = task.type ? `#zentao-${task.type}` : "";
-
 	// Assemble line
 	const meta = tokens.join(" ");
-	return `- [${checkbox}] ${task.name} ${meta} ${typeTag}`.replace(/\s+/g, " ").trimEnd();
+	return `- [${checkbox}] ${task.name} ${meta}`.replace(/\s+/g, " ").trimEnd();
 }
 
 /** Extract the Zentao task ID from an existing Obsidian task line (for dedup). */

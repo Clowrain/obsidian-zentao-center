@@ -162,3 +162,13 @@ If you need to write a rule or are not familiar with harness-lint, load the harn
 
 If lint fails, first run `harness-lint rule explain <rule-id>` to read the specific rule. When the rule is correct, fix the code. When the rule is a false positive, narrow the GritQL, add clarification, or adjust the Bad / Good examples, but do not delete or weaken the rule just to make lint pass.
 <!--HARNESS LINT END-->
+
+## .context 项目上下文
+
+> 项目使用 `.context/` 管理开发决策上下文。
+
+- 编码规范：`.context/prefs/coding-style.md`
+- 工作流规则：`.context/prefs/workflow.md`
+- 决策历史：`.context/history/commits.md`
+
+**规则**：修改代码前必读 prefs/，做决策时按 workflow.md 规则记录日志。

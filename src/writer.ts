@@ -234,6 +234,19 @@ export async function setEstimate(
   return { before, after, unchanged: before === after };
 }
 
+// US-832: Set closed date inline field for Zentao task closure
+export async function setClosed(
+  app: App,
+  task: ParsedTask,
+  date: string | null, // YYYY-MM-DD or null to clear
+): Promise<{ before: string; after: string; unchanged: boolean }> {
+  const { before, after } = await mutateLine(app, task.path, task.line, (raw) => {
+    const nl = setInlineField(raw, "closed", date);
+    return nl === raw ? null : nl;
+  });
+  return { before, after, unchanged: before === after };
+}
+
 function today(): string {
   const d = new Date();
   const pad = (n: number) => n.toString().padStart(2, "0");

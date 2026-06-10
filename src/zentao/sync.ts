@@ -45,13 +45,14 @@ export function getDateRangeForTab(
 	}
 }
 
-/** Filter Zentao tasks by deadline within a date range (client-side). */
+/** Filter Zentao tasks by deadline within a date range (client-side).
+ *  Tasks without a valid deadline are KEPT (they still need syncing). */
 export function filterTasksByDeadline(
 	tasks: ZentaoTask[],
 	range: DateRange,
 ): ZentaoTask[] {
 	return tasks.filter((t) => {
-		if (!t.deadline || t.deadline === "0000-00-00") return false;
+		if (!t.deadline || t.deadline === "0000-00-00") return true;
 		const d = t.deadline.slice(0, 10);
 		return d >= range.start && d <= range.end;
 	});
@@ -115,6 +116,87 @@ function getDailyNotePath(app: App): string | null {
 	return `${config.folder}/${fileName}.${ext}`;
 }
 
+function resolveSyncTargetPath(task: ZentaoTask, baseFolder: string): string {
+	const safeProjectName = (task.projectName || `项目${task.project}`).replace(/[\/\\:*?"<>|]/g, "_");
+	const safeExecutionName = task.executionName ? task.executionName.replace(/[\/\\:*?"<>|]/g, "_") : "";
+	if (!safeExecutionName || safeExecutionName === safeProjectName) {
+		return `${baseFolder}/${safeProjectName}/${safeProjectName}.md`;
+	}
+	return `${baseFolder}/${safeProjectName}/${safeExecutionName}.md`;
+}
+
+// ── Helper: Sync tasks to a single file ──
+
+async function syncTasksToFile(
+	vault: App["vault"],
+	targetPath: string,
+	tasks: ZentaoTask[],
+	mapperOpts: MapperOptions,
+): Promise<{ added: number; updated: number; skipped: number; error?: string }> {
+	const result = { added: 0, updated: 0, skipped: 0 };
+
+	// Read existing file and build dedup index
+	let existingContent = "";
+	try {
+		if (await vault.adapter.exists(targetPath)) {
+			existingContent = await vault.adapter.read(targetPath);
+		}
+	} catch {
+		// File may not exist yet
+	}
+
+	const zentaoIndex = buildZentaoIndex(existingContent);
+	const lines = existingContent ? existingContent.split("\n") : [];
+
+	// Process each task
+	for (const task of tasks) {
+		const mapped = mapZentaoTask(task, mapperOpts);
+		const existing = zentaoIndex.get(task.id);
+
+		if (existing) {
+			if (hasTaskChanged(task, existing.rawLine, mapperOpts)) {
+				// Update existing line
+				lines[existing.lineIndex] = mapped;
+				result.updated++;
+			} else {
+				result.skipped++;
+			}
+		} else {
+			// Append new task
+			if (lines.length > 0 && lines[lines.length - 1] !== "") {
+				lines.push(""); // Blank line separator
+			}
+			lines.push(mapped);
+			result.added++;
+		}
+	}
+
+	// Write back atomically
+	try {
+		const newContent = lines.join("\n");
+		const fileExists = await vault.adapter.exists(targetPath);
+		if (fileExists) {
+			const file = vault.getAbstractFileByPath(targetPath);
+			if (file instanceof TFile) {
+				await vault.process(file, () => newContent);
+			} else {
+				await vault.adapter.write(targetPath, newContent);
+			}
+		} else {
+			const dir = targetPath.substring(0, targetPath.lastIndexOf("/"));
+			if (dir) {
+				await vault.adapter.mkdir(dir).catch(() => {});
+			}
+			await vault.create(targetPath, newContent);
+		}
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		result.error = msg;
+	}
+
+	return result;
+}
+
 // ── Main sync function ──
 
 export async function syncZentaoTasks(
@@ -149,76 +231,58 @@ export async function syncZentaoTasks(
 		return result;
 	}
 
-	// 3. Resolve target file path
-	let targetPath: string;
-	if (settings.syncTarget === "daily-note") {
-		const dailyPath = getDailyNotePath(app);
-		if (!dailyPath) {
-			result.errors.push("Daily Notes 不可用，请先启用 Daily Notes 并设置文件夹");
-			return result;
-		}
-		targetPath = dailyPath;
-	} else {
-		targetPath = settings.specifiedFilePath;
-		if (!targetPath) {
-			result.errors.push("未指定同步目标文件");
-			return result;
-		}
-	}
-
-	// 4. Read existing file and build dedup index
 	const vault = app.vault;
-	let existingContent = "";
-	try {
-		if (await vault.adapter.exists(targetPath)) {
-			existingContent = await vault.adapter.read(targetPath);
+
+	// 3. Branch by sync target mode
+	if (settings.syncTarget === "project-folder") {
+		const folder = settings.projectFolder || "ZentaoTasks";
+		const pathGroups = new Map<string, ZentaoTask[]>();
+		for (const task of tasks) {
+			const targetPath = resolveSyncTargetPath(task, folder);
+			const group = pathGroups.get(targetPath) || [];
+			group.push(task);
+			pathGroups.set(targetPath, group);
 		}
-	} catch {
-		// File may not exist yet
-	}
 
-	const zentaoIndex = buildZentaoIndex(existingContent);
-	const lines = existingContent ? existingContent.split("\n") : [];
-
-	// 5. Process each task
-	for (const task of tasks) {
-		const mapped = mapZentaoTask(task, mapperOpts);
-		const existing = zentaoIndex.get(task.id);
-
-		if (existing) {
-			if (hasTaskChanged(task, existing.rawLine, mapperOpts)) {
-				// Update existing line
-				lines[existing.lineIndex] = mapped;
-				result.updated++;
-			} else {
-				result.skipped++;
-			}
-		} else {
-			// Append new task
-			if (lines.length > 0 && lines[lines.length - 1] !== "") {
-				lines.push(""); // Blank line separator
-			}
-			lines.push(mapped);
-			result.added++;
-		}
-	}
-
-	// 6. Write back atomically
-	try {
-		const newContent = lines.join("\n");
-		const existingFile = app.vault.getAbstractFileByPath(targetPath);
-		if (existingFile instanceof TFile) {
-			await vault.process(existingFile, () => newContent);
-		} else {
+		for (const [targetPath, targetTasks] of pathGroups) {
 			const dir = targetPath.substring(0, targetPath.lastIndexOf("/"));
 			if (dir) {
 				await vault.adapter.mkdir(dir).catch(() => {});
 			}
-			await vault.create(targetPath, newContent);
+
+			const fileResult = await syncTasksToFile(vault, targetPath, targetTasks, mapperOpts);
+			result.added += fileResult.added;
+			result.updated += fileResult.updated;
+			result.skipped += fileResult.skipped;
+			if (fileResult.error) {
+				result.errors.push(`${targetPath}: ${fileResult.error}`);
+			}
 		}
-	} catch (e) {
-		const msg = e instanceof Error ? e.message : String(e);
-		result.errors.push(`写入失败: ${msg}`);
+	} else {
+		// Single file mode (daily-note or specified-file)
+		let targetPath: string;
+		if (settings.syncTarget === "daily-note") {
+			const dailyPath = getDailyNotePath(app);
+			if (!dailyPath) {
+				result.errors.push("Daily Notes 不可用，请先启用 Daily Notes 并设置文件夹");
+				return result;
+			}
+			targetPath = dailyPath;
+		} else {
+			targetPath = settings.specifiedFilePath;
+			if (!targetPath) {
+				result.errors.push("未指定同步目标文件");
+				return result;
+			}
+		}
+
+		const fileResult = await syncTasksToFile(vault, targetPath, tasks, mapperOpts);
+		result.added = fileResult.added;
+		result.updated = fileResult.updated;
+		result.skipped = fileResult.skipped;
+		if (fileResult.error) {
+			result.errors.push(fileResult.error);
+		}
 	}
 
 	return result;

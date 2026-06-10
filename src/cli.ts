@@ -14,6 +14,7 @@ import {
   setDeadline,
   setActual,
   setEstimate,
+  setClosed,
   markDone,
   markUndone,
   markDropped,
@@ -271,6 +272,15 @@ export class TaskCenterApi {
     const task = await this.cache.resolveRef(id);
     if (!task) throw new TaskWriterError("not_found", id);
     return await setEstimate(this.app, task, minutes);
+  }
+
+  // US-832: Set closed date for Zentao task closure
+  async closed(id: string, date: string | null = null) {
+    const task = await this.cache.resolveRef(id);
+    if (!task) throw new TaskWriterError("not_found", id);
+    // Use today's date if not specified
+    const closedDate = date ?? todayISO();
+    return await setClosed(this.app, task, closedDate);
   }
 
   async done(id: string, at: string | null = null, cascade = true) {

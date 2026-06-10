@@ -446,18 +446,6 @@ export class TaskCenterSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
             }),
         );
-
-      // Generate weekly report button
-      new Setting(containerEl)
-        .setName("生成周报")
-        .setDesc("根据本周完成任务和下周计划生成周报")
-        .addButton((btn) =>
-          btn
-            .setButtonText("生成周报")
-            .onClick(async () => {
-              await this.generateWeeklyReport();
-            }),
-        );
     }
 
     // Clear config

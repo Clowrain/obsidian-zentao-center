@@ -24,6 +24,8 @@ export interface ParsedTask {
   completed: string | null;
   cancelled: string | null;
   created: string | null;
+  // US-832: Zentao task closed date (inline field [closed:: YYYY-MM-DD])
+  closed: string | null;
   // US-142a: recurrence text from 🔁 token (e.g. "every week"). Consumed
   // greedily up to the next metadata boundary in parser.ts META_STRIP_RE.
   recurrence: string | null;

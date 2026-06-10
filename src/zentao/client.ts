@@ -338,8 +338,8 @@ export class ZentaoClient {
 	// ── US-826~829: Finish task sync ──
 
 	/**
-	 * Finish a task in Zentao via classic page API.
-	 * Uses multipart/form-data POST with cookie authentication.
+	 * Finish a task in Zentao via REST API.
+	 * Uses JSON POST with Token authentication.
 	 * @param taskId Zentao task ID
 	 * @param options Finish options (finishedDate, currentConsumed, etc.)
 	 */
@@ -347,54 +347,47 @@ export class ZentaoClient {
 		taskId: number,
 		options: {
 			finishedDate?: string; // YYYY-MM-DD HH:mm, defaults to now
-			currentConsumed?: string; // hours, defaults to "0"
+			currentConsumed?: string; // hours (int), defaults to "1"
 			assignedTo?: string; // account, defaults to this.account
 			realStarted?: string; // YYYY-MM-DD HH:mm, optional
 			comment?: string; // optional
 		} = {},
-	): Promise<{ success: boolean; message?: string }> {
-		// Ensure cookies are available
-		if (!this.allCookies) await this.classicLogin();
-		// After classicLogin, allCookies should be set
-		if (!this.allCookies) {
-			return { success: false, message: "禅道认证失败，无法同步" };
+	): Promise<{ success: boolean; message?: string; consumed?: number }> {
+		// Get REST API token
+		const token = await this.ensureToken();
+		if (!token) {
+			return { success: false, message: "禅道认证失败，无法获取 Token" };
 		}
 
 		const now = new Date();
 		const finishedDate = options.finishedDate ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-		const currentConsumed = options.currentConsumed ?? "0";
+		// currentConsumed must be an integer (hours), minimum 1
+		const currentConsumed = parseInt(options.currentConsumed ?? "1") || 1;
 		const assignedTo = options.assignedTo ?? this.account;
 
-		// Build multipart/form-data body
-		const boundary = `----WebKitFormBoundary${Math.random().toString(36).slice(2, 15)}`;
-		const parts: string[] = [];
-
-		parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="currentConsumed"\r\n\r\n${currentConsumed}`);
-		parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="assignedTo"\r\n\r\n${assignedTo}`);
-		if (options.realStarted) {
-			parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="realStarted"\r\n\r\n${options.realStarted}`);
+		// Build JSON request body (REST API format)
+		// assignedTo is optional - if not provided, uses task's current assignee
+		const bodyObj: Record<string, unknown> = {
+			currentConsumed,
+			realStarted: options.realStarted ?? undefined,
+			finishedDate,
+			comment: options.comment ?? undefined,
+		};
+		// Only include assignedTo if explicitly provided
+		if (options.assignedTo) {
+			bodyObj.assignedTo = options.assignedTo;
 		}
-		parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="finishedDate"\r\n\r\n${finishedDate}`);
-		parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="files[]"; filename=""\r\nContent-Type: application/octet-stream\r\n\r\n`);
-		if (options.comment) {
-			parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="comment"\r\n\r\n${options.comment}`);
-		}
-		// uid is a random identifier for the request
-		const uid = Math.random().toString(16).slice(2, 15);
-		parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="uid"\r\n\r\n${uid}`);
-		parts.push(`--${boundary}--`);
-
-		const body = parts.join("\r\n");
+		const body = JSON.stringify(bodyObj);
+		console.log("[zentao-finish] REST API body:", body);
 
 		try {
 			const response = await Promise.race([
 				requestUrl({
-					url: `${this.serverUrl}/index.php?m=task&f=finish&taskID=${taskId}`,
+					url: `${this.serverUrl}/api.php/v1/tasks/${taskId}/finish`,
 					method: "POST",
 					headers: {
-						"Content-Type": `multipart/form-data; boundary=${boundary}`,
-						Cookie: this.allCookies,
-						"X-Requested-With": "XMLHttpRequest",
+						"Content-Type": "application/json",
+						Token: token,
 					},
 					body,
 				}),
@@ -402,16 +395,187 @@ export class ZentaoClient {
 			]);
 
 			const result = response.json;
-			console.log("[zentao-finish] response:", result);
+			console.log("[zentao-finish] REST response:", result);
 
-			if (result?.status === "success" || result?.message === "success") {
+			// REST API returns {status: 'success'} or task object with status='done'
+			// The task object includes consumed field (hours)
+			if (result?.status === "success" || result?.status === "done") {
+				console.log("[zentao-finish] Task completed successfully!");
+				// Return consumed hours from response if available
+				const consumed = typeof result?.consumed === "number" ? result.consumed : undefined;
+				return { success: true, consumed };
+			}
+
+			// Check for error response
+			if (result?.error ?? result?.message) {
+				return { success: false, message: result?.error ?? result?.message ?? "禅道操作失败" };
+			}
+
+			// If we got a valid task object back, check its status
+			if (result?.id && typeof result.id === "number") {
+				console.log("[zentao-finish] Got task object back, checking status:", result.status);
+				if (result.status === "done" || result.status === "closed") {
+					// Return consumed hours from task object
+					const consumed = typeof result?.consumed === "number" ? result.consumed : undefined;
+					return { success: true, consumed };
+				}
+				return { success: false, message: `任务状态未更新：${result.status}` };
+			}
+
+			// Default: if HTTP 200, assume success (no consumed info available)
+			if (response.status === 200) {
+				console.log("[zentao-finish] HTTP 200, assuming success");
 				return { success: true };
 			}
 
-			return { success: false, message: result?.message ?? "未知错误" };
+			return { success: false, message: "未知响应格式" };
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
-			console.error("[zentao-finish] error:", msg);
+			console.error("[zentao-finish] REST error:", msg);
+			return { success: false, message: msg };
+		}
+	}
+
+	/**
+	 * Update task deadline via REST API.
+	 * PUT /api.php/v1/tasks/{id} with { deadline: "YYYY-MM-DD", estStarted: "YYYY-MM-DD" }
+	 * Zentao requires deadline >= estStarted, so we also send estStarted if needed.
+	 */
+	async updateTaskDeadline(
+		taskId: number,
+		deadline: string | null, // YYYY-MM-DD or null to clear
+		estStarted?: string | null, // YYYY-MM-DD or null to use deadline as estStarted
+	): Promise<{ success: boolean; message?: string }> {
+		// Get REST API token
+		const token = await this.ensureToken();
+		if (!token) {
+			return { success: false, message: "禅道认证失败，无法获取 Token" };
+		}
+
+		// Zentao requires deadline >= estStarted
+		// If deadline is set and estStarted is not provided or deadline < estStarted,
+		// set estStarted = deadline to satisfy the constraint
+		let finalEstStarted = estStarted ?? "";
+		if (deadline && (!estStarted || (estStarted && deadline < estStarted))) {
+			finalEstStarted = deadline;
+		}
+
+		const bodyObj: Record<string, unknown> = {
+			deadline: deadline ?? "", // Empty string clears deadline
+			estStarted: finalEstStarted,
+		};
+		const body = JSON.stringify(bodyObj);
+		console.log("[zentao-update] REST API body:", body);
+
+		try {
+			const response = await Promise.race([
+				requestUrl({
+					url: `${this.serverUrl}/api.php/v1/tasks/${taskId}`,
+					method: "PUT",
+					headers: {
+						"Content-Type": "application/json",
+						Token: token,
+					},
+					body,
+				}),
+				timeoutPromise(),
+			]);
+
+			const result = response.json;
+			console.log("[zentao-update] REST response:", result);
+
+			// REST API returns updated task object or {status: 'success'}
+			if (result?.id && typeof result.id === "number") {
+				console.log("[zentao-update] Task updated successfully, new deadline:", result.deadline);
+				return { success: true };
+			}
+
+			if (result?.status === "success") {
+				return { success: true };
+			}
+
+			// Check for error response
+			if (result?.error ?? result?.message) {
+				return { success: false, message: result?.error ?? result?.message ?? "禅道操作失败" };
+			}
+
+			// Default: if HTTP 200, assume success
+			if (response.status === 200) {
+				console.log("[zentao-update] HTTP 200, assuming success");
+				return { success: true };
+			}
+
+			return { success: false, message: "未知响应格式" };
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			console.error("[zentao-update] REST error:", msg);
+			return { success: false, message: msg };
+		}
+	}
+
+	/**
+	 * Close a task via REST API.
+	 * POST /api.php/v1/tasks/{id}/close with optional comment.
+	 */
+	async closeTask(
+		taskId: number,
+		comment?: string,
+	): Promise<{ success: boolean; message?: string }> {
+		// Get REST API token
+		const token = await this.ensureToken();
+		if (!token) {
+			return { success: false, message: "禅道认证失败，无法获取 Token" };
+		}
+
+		const bodyObj: Record<string, unknown> = {};
+		if (comment) {
+			bodyObj.comment = comment;
+		}
+		const body = JSON.stringify(bodyObj);
+		console.log("[zentao-close] REST API body:", body);
+
+		try {
+			const response = await Promise.race([
+				requestUrl({
+					url: `${this.serverUrl}/api.php/v1/tasks/${taskId}/close`,
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Token: token,
+					},
+					body,
+				}),
+				timeoutPromise(),
+			]);
+
+			const result = response.json;
+			console.log("[zentao-close] REST response:", result);
+
+			// REST API returns updated task object with status='closed'
+			if (result?.id && typeof result.id === "number" && result.status === "closed") {
+				console.log("[zentao-close] Task closed successfully");
+				return { success: true };
+			}
+
+			if (result?.status === "success") {
+				return { success: true };
+			}
+
+			// Check for error response
+			if (result?.error ?? result?.message) {
+				return { success: false, message: result?.error ?? result?.message ?? "禅道操作失败" };
+			}
+
+			// Default: if HTTP 200, assume success
+			if (response.status === 200) {
+				console.log("[zentao-close] HTTP 200, assuming success");
+				return { success: true };
+			}
+
+			return { success: false, message: "未知响应格式" };
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			console.error("[zentao-close] REST error:", msg);
 			return { success: false, message: msg };
 		}
 	}
@@ -444,6 +608,7 @@ function convertClassicTask(raw: ClassicTaskRaw): ZentaoTask {
 		project: raw.project,
 		projectName: raw.projectName ?? "",
 		execution: raw.execution ?? raw.executionID ?? 0,
+		executionName: raw.executionName ?? "",
 		parent: raw.parent ?? 0,
 		name: raw.name ?? "",
 		type: raw.type ?? "",
@@ -457,8 +622,8 @@ function convertClassicTask(raw: ClassicTaskRaw): ZentaoTask {
 		openedBy: raw.openedBy ?? "",
 		openedDate: raw.openedDate ?? "",
 		finishedBy: raw.finishedBy || null,
-		finishedDate: raw.finishedDate ?? "",
-		closedDate: raw.closedDate ?? "",
+		finishedDate: fixDate(raw.finishedDate),
+		closedDate: fixDate(raw.closedDate),
 		desc: raw.desc ?? "",
 	};
 }
