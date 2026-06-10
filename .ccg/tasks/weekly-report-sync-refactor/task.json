@@ -1,0 +1,12 @@
+{
+  "id": "weekly-report-sync-refactor",
+  "title": "周报数据来源调整 + 同步任务存储逻辑重构",
+  "status": "completed",
+  "strategy": "guided-develop",
+  "currentPhase": "6",
+  "nextAction": "完成",
+  "gate": null,
+  "branch": "main",
+  "scope": "weekly-report-sync-refactor",
+  "createdAt": "2026-06-10T16:30:00+08:00"
+}

@@ -1,4 +1,4 @@
-# obsidian-task-center
+# obsidian-zentao-center
 
 一个 Obsidian 插件：周/月视图 + 父子任务渲染 + 自然语言 Quick Add + 移动端手势。
 

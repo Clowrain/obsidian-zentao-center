@@ -1,16 +1,16 @@
 ---
-name: obsidian-task-center
-description: Read and write tasks in an Obsidian vault through the Task Center plugin's CLI. Use when the user wants to list, schedule, complete, abandon, nest, or add tasks — or when they want estimate-accuracy / review / agent-brief stats. Obsidian must be running with the `task-center` plugin enabled; all verbs are namespaced `obsidian task-center:<verb>`.
+name: obsidian-zentao-center
+description: Read and write tasks in an Obsidian vault through the Zentao Center plugin's CLI. Use when the user wants to list, schedule, complete, abandon, nest, or add tasks — or when they want estimate-accuracy / review / agent-brief stats. Obsidian must be running with the `zentao-center` plugin enabled; all verbs are namespaced `obsidian zentao-center:<verb>`.
 ---
 
-# Obsidian Task Center — CLI skill
+# Obsidian Zentao Center — CLI skill
 
-This skill is the AI interface to the obsidian-task-center plugin. The plugin registers its verbs to Obsidian's native CLI (1.12.2+), so calls go `obsidian task-center:<verb> key=value …`.
+This skill is the AI interface to the obsidian-zentao-center plugin. The plugin registers its verbs to Obsidian's native CLI (1.12.2+), so calls go `obsidian zentao-center:<verb> key=value …`.
 
 For a full command index, run:
 
 ```bash
-obsidian task-center
+obsidian zentao-center
 ```
 
 Data stays inline markdown. Syntax:
@@ -32,19 +32,19 @@ Data stays inline markdown. Syntax:
 
 ## When to use this skill
 
-- "list today's tasks" / "what do I have scheduled" → `task-center:list`
-- "show task details" / "pull the raw line" → `task-center:show`
-- "schedule X" / "move X to tomorrow" → `task-center:schedule`
-- "mark X done" / "I finished X" → `task-center:done`
-- "drop X" / "abandon X" / "remove X" → `task-center:abandon`
-- "nest X under Y" / "make X a subtask of Y" → `task-center:nest`
-- "log time on X" / "I spent 45m on X" → `task-center:actual`
-- "add a task" / "remind me to …" → `task-center:add`
-- "how accurate were my estimates" / "weekly review" → `task-center:stats`
-- "what should I do next" / "brief me on today" → `task-center:brief`
-- "end-of-day review" / "what happened this week" → `task-center:review`
-- "list/manage/edit query tabs" / "show saved query DSL" / "run a preset view" → `task-center:query-list` / `task-center:query-show` / `task-center:query-run`
-- "create/update/rename/copy/hide/delete/default a query tab" → `task-center:query-create` / `task-center:query-update` / `task-center:query-rename` / `task-center:query-copy` / `task-center:query-hide` / `task-center:query-delete` / `task-center:query-set-default`
+- "list today's tasks" / "what do I have scheduled" → `zentao-center:list`
+- "show task details" / "pull the raw line" → `zentao-center:show`
+- "schedule X" / "move X to tomorrow" → `zentao-center:schedule`
+- "mark X done" / "I finished X" → `zentao-center:done`
+- "drop X" / "abandon X" / "remove X" → `zentao-center:abandon`
+- "nest X under Y" / "make X a subtask of Y" → `zentao-center:nest`
+- "log time on X" / "I spent 45m on X" → `zentao-center:actual`
+- "add a task" / "remind me to …" → `zentao-center:add`
+- "how accurate were my estimates" / "weekly review" → `zentao-center:stats`
+- "what should I do next" / "brief me on today" → `zentao-center:brief`
+- "end-of-day review" / "what happened this week" → `zentao-center:review`
+- "list/manage/edit query tabs" / "show saved query DSL" / "run a preset view" → `zentao-center:query-list` / `zentao-center:query-show` / `zentao-center:query-run`
+- "create/update/rename/copy/hide/delete/default a query tab" → `zentao-center:query-create` / `zentao-center:query-update` / `zentao-center:query-rename` / `zentao-center:query-copy` / `zentao-center:query-hide` / `zentao-center:query-delete` / `zentao-center:query-set-default`
 
 **Do not** use `Read`/`Write` directly on task files to mutate tasks — use the CLI so `vault.process` locking + parser conventions are respected. Reading files is fine when you want broader context (the task body, surrounding notes).
 
@@ -58,20 +58,20 @@ obsidian plugins:enabled | grep task-center
 
 If missing, ask the user to enable it. If Obsidian isn't running, the CLI will auto-launch (first call incurs latency).
 
-If `obsidian task-center` works but a specific verb is missing, the vault is running an older plugin build. Ask the user to update/reload Task Center before using that verb.
+If `obsidian task-center` works but a specific verb is missing, the vault is running an older plugin build. Ask the user to update/reload Zentao Center before using that verb.
 
 ## Verbs
 
-### `task-center:list [filters]`
+### `zentao-center:list [filters]`
 
 Read-only. Returns tasks matching all filters. Every row starts with `<path>:L<line>` as the id — safe to pipe.
 
 ```
-obsidian task-center:list scheduled=today
-obsidian task-center:list scheduled=unscheduled tag='#2象限'
-obsidian task-center:list done=2026-04-01..2026-04-30
-obsidian task-center:list overdue
-obsidian task-center:list status=todo search=示例
+obsidian zentao-center:list scheduled=today
+obsidian zentao-center:list scheduled=unscheduled tag='#2象限'
+obsidian zentao-center:list done=2026-04-01..2026-04-30
+obsidian zentao-center:list overdue
+obsidian zentao-center:list status=todo search=示例
 ```
 
 `scheduled=` / `done=` vocabulary:
@@ -84,11 +84,11 @@ obsidian task-center:list status=todo search=示例
 
 Other flags: `overdue`, `has-deadline`, `status=todo|done|dropped`, `tag=<comma-sep>` (supports `#*象限`), `parent=<id>`, `search=<text>`, `limit=N`, `format=text|json` (JSON gives a structured array with every field — prefer it when you plan to parse).
 
-### `task-center:show ref=<id>`
+### `zentao-center:show ref=<id>`
 
 Full single-task detail — scheduled/deadline/estimate/actual/created/completed/cancelled/parent/children/raw.
 
-### `task-center:stats [days=N] [group=<prefix>]`
+### `zentao-center:stats [days=N] [group=<prefix>]`
 
 Rolling-window estimate accuracy + tag minutes breakdown. Default `days=7`. `group=象限` aggregates matching tags into a section (useful for Covey quadrants). Output includes:
 
@@ -99,13 +99,13 @@ Rolling-window estimate accuracy + tag minutes breakdown. Default `days=7`. `gro
 
 Use this to **correct planning-fallacy** when suggesting estimates. If the 7-day `ratio` is 1.3, new estimates should be scaled up by that factor vs. the user's gut feel.
 
-### `task-center:brief [today=YYYY-MM-DD] [limit=N] [format=text|json]`
+### `zentao-center:brief [today=YYYY-MM-DD] [limit=N] [format=text|json]`
 
 Agent brief for near-term planning. Shows overdue / today / unscheduled candidate counts, sample tasks, and executable next-action commands such as `done`, `abandon`, `schedule_today`, `schedule_tomorrow`, and `actual +15m`.
 
 Use this when the user asks what to do next or wants a compact status overview before planning.
 
-### `task-center:review [today=YYYY-MM-DD] [days=N] [limit=N] [format=text|json]`
+### `zentao-center:review [today=YYYY-MM-DD] [days=N] [limit=N] [format=text|json]`
 
 End-of-day / weekly retrospective summary. Reports today and rolling-week windows: done, abandoned, delayed-open tasks, estimate-vs-actual totals, grouping summaries, and sample task ids.
 
@@ -118,12 +118,12 @@ Query Tabs are saved QueryPreset DSL objects. The CLI uses the same storage, sch
 Read:
 
 ```
-obsidian task-center:query-list
-obsidian task-center:query-list hidden=true format=json
-obsidian task-center:query-show id=preset-week
-obsidian task-center:query-run id=preset-today
-obsidian task-center:query-run id=preset-today view=week anchor=2026-05-04
-obsidian task-center:query-run id=preset-week view=month anchor=2026-05-01 format=json
+obsidian zentao-center:query-list
+obsidian zentao-center:query-list hidden=true format=json
+obsidian zentao-center:query-show id=preset-week
+obsidian zentao-center:query-run id=preset-today
+obsidian zentao-center:query-run id=preset-today view=week anchor=2026-05-04
+obsidian zentao-center:query-run id=preset-week view=month anchor=2026-05-01 format=json
 ```
 
 `query-list` text output includes `id`, `name`, `builtin|custom`, `default`, and `hidden|visible`. JSON output returns:
@@ -144,8 +144,8 @@ obsidian task-center:query-run id=preset-week view=month anchor=2026-05-01 forma
 Create or update DSL:
 
 ```
-obsidian task-center:query-create dsl='{"name":"工作","filters":{"tags":["#work"],"status":["todo"]},"view":{"type":"list"},"summary":[{"type":"count"}]}'
-obsidian task-center:query-update id=sv-alpha dsl='{"name":"工作周","filters":{"tags":["#work"],"time":{"scheduled":"week"},"status":["todo"]},"view":{"type":"week"},"summary":[{"type":"count"}]}'
+obsidian zentao-center:query-create dsl='{"name":"工作","filters":{"tags":["#work"],"status":["todo"]},"view":{"type":"list"},"summary":[{"type":"count"}]}'
+obsidian zentao-center:query-update id=sv-alpha dsl='{"name":"工作周","filters":{"tags":["#work"],"time":{"scheduled":"week"},"status":["todo"]},"view":{"type":"week"},"summary":[{"type":"count"}]}'
 ```
 
 `query-save` is kept as an alias for `query-create`. Create always allocates a new id, even if the DSL contains one. Update preserves the target id and builtin/custom identity.
@@ -153,13 +153,13 @@ obsidian task-center:query-update id=sv-alpha dsl='{"name":"工作周","filters"
 Manage tabs:
 
 ```
-obsidian task-center:query-rename id=sv-alpha name="深度工作"
-obsidian task-center:query-copy id=preset-week name="我的本周"
-obsidian task-center:query-hide id=preset-week hidden=true
-obsidian task-center:query-hide id=preset-week hidden=false
-obsidian task-center:query-delete id=sv-alpha
-obsidian task-center:query-set-default id=preset-week
-obsidian task-center:query-set-default id=null
+obsidian zentao-center:query-rename id=sv-alpha name="深度工作"
+obsidian zentao-center:query-copy id=preset-week name="我的本周"
+obsidian zentao-center:query-hide id=preset-week hidden=true
+obsidian zentao-center:query-hide id=preset-week hidden=false
+obsidian zentao-center:query-delete id=sv-alpha
+obsidian zentao-center:query-set-default id=preset-week
+obsidian zentao-center:query-set-default id=null
 ```
 
 Rules:
@@ -174,31 +174,31 @@ Rules:
 All write verbs return `ok <id>` with a `before / after` diff, or `unchanged` if already in the target state.
 
 ```
-obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=2026-04-25
-obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=null       # clear ⏳
+obsidian zentao-center:schedule ref=Tasks/Inbox.md:L42 date=2026-04-25
+obsidian zentao-center:schedule ref=Tasks/Inbox.md:L42 date=null       # clear ⏳
 
-obsidian task-center:deadline ref=… date=2026-05-15
-obsidian task-center:deadline ref=… date=null
+obsidian zentao-center:deadline ref=… date=2026-05-15
+obsidian zentao-center:deadline ref=… date=null
 
-obsidian task-center:estimate ref=… minutes=90m         # set [estimate::]
-obsidian task-center:estimate ref=… minutes=null        # clear
-obsidian task-center:actual   ref=… minutes=45m         # set [actual::]
-obsidian task-center:actual   ref=… minutes=+15m        # additive
+obsidian zentao-center:estimate ref=… minutes=90m         # set [estimate::]
+obsidian zentao-center:estimate ref=… minutes=null        # clear
+obsidian zentao-center:actual   ref=… minutes=45m         # set [actual::]
+obsidian zentao-center:actual   ref=… minutes=+15m        # additive
 
-obsidian task-center:done   ref=… [at=YYYY-MM-DD]       # [x] + ✅
-obsidian task-center:undone ref=…                        # reverse a done
-obsidian task-center:abandon ref=…                       # [-] + ❌, cascades to todo children
-obsidian task-center:drop   ref=…                        # deprecated alias for abandon
+obsidian zentao-center:done   ref=… [at=YYYY-MM-DD]       # [x] + ✅
+obsidian zentao-center:undone ref=…                        # reverse a done
+obsidian zentao-center:abandon ref=…                       # [-] + ❌, cascades to todo children
+obsidian zentao-center:drop   ref=…                        # deprecated alias for abandon
 
-obsidian task-center:tag    ref=… tag='#基建'            # add
-obsidian task-center:tag    ref=… tag='#基建' remove     # remove
+obsidian zentao-center:tag    ref=… tag='#基建'            # add
+obsidian zentao-center:tag    ref=… tag='#基建' remove     # remove
 
-obsidian task-center:nest   ref=… under=…                # make ref a subtask of under
+obsidian zentao-center:nest   ref=… under=…                # make ref a subtask of under
 
-obsidian task-center:add text="处理示例任务" tag='#3象限' scheduled=2026-04-26 [to=<path>] [deadline=…] [estimate=30m] [parent=<id>]
+obsidian zentao-center:add text="处理示例任务" tag='#3象限' scheduled=2026-04-26 [to=<path>] [deadline=…] [estimate=30m] [parent=<id>]
 ```
 
-`task-center:add` target priority: explicit `to=` → parent's file (if `parent=` given) → today's Daily Note. There is no inbox fallback: when neither `to=` nor `parent=` is supplied, the Daily Notes core plugin must be enabled and configured or the command fails with `daily_notes_unavailable`. Default stamps `➕ today` unless `stamp-created=false`.
+`zentao-center:add` target priority: explicit `to=` → parent's file (if `parent=` given) → today's Daily Note. There is no inbox fallback: when neither `to=` nor `parent=` is supplied, the Daily Notes core plugin must be enabled and configured or the command fails with `daily_notes_unavailable`. Default stamps `➕ today` unless `stamp-created=false`.
 
 `abandon` / `drop` cascades to todo descendants only. Already completed / abandoned / cancelled descendants keep their historical stamps. To abandon just one line, pass a leaf task.
 
@@ -214,7 +214,7 @@ error  <code>
 Common codes: `task_not_found`, `ambiguous_slug`, `invalid_date`, `daily_notes_unavailable`, `invalid_nest`, `nest_partial`.
 
 Recover by:
-- `task_not_found` → re-run `task-center:list` to get fresh ids
+- `task_not_found` → re-run `zentao-center:list` to get fresh ids
 - `ambiguous_slug` → the error message lists candidate ids; pick one
 - `invalid_date` → convert to `YYYY-MM-DD`
 - `daily_notes_unavailable` → enable/configure Daily Notes, or pass `to=<path>`
@@ -224,28 +224,28 @@ Recover by:
 
 ### End-of-day wrap-up
 
-1. `obsidian task-center:list done=today` → collect what got done.
+1. `obsidian zentao-center:list done=today` → collect what got done.
 2. `toggl entry list --since today` → cross-reference actual time per task.
-3. For each completed task: `obsidian task-center:actual ref=… minutes=Nm` to record real time.
-4. `obsidian task-center:review days=7` → read today's / week's completion, abandonment, delay, and estimate summary.
-5. `obsidian task-center:stats days=7 group=象限` → read calibration.
-6. `obsidian task-center:brief` or `obsidian task-center:list scheduled=unscheduled` + `obsidian task-center:list scheduled=tomorrow` → candidate pool.
+3. For each completed task: `obsidian zentao-center:actual ref=… minutes=Nm` to record real time.
+4. `obsidian zentao-center:review days=7` → read today's / week's completion, abandonment, delay, and estimate summary.
+5. `obsidian zentao-center:stats days=7 group=象限` → read calibration.
+6. `obsidian zentao-center:brief` or `obsidian zentao-center:list scheduled=unscheduled` + `obsidian zentao-center:list scheduled=tomorrow` → candidate pool.
 7. Pick tomorrow's set (≤1 big, ≤2 small based on user's self-declared capacity), deadline-first, quadrant-2-first.
-8. `obsidian task-center:schedule ref=… date=<tomorrow>` per chosen task; use `add` for anything new.
+8. `obsidian zentao-center:schedule ref=… date=<tomorrow>` per chosen task; use `add` for anything new.
 
 ### Quick capture
 
 User says "don't forget to X". Default to today's daily note:
 
 ```
-obsidian task-center:add text="X"
+obsidian zentao-center:add text="X"
 ```
 
 Only set `scheduled=` / `deadline=` / `tag=` if the user specified them.
 
 ### Backfill completions
 
-User says "I finished Y yesterday": `obsidian task-center:done ref=<id> at=<yesterday>`.
+User says "I finished Y yesterday": `obsidian zentao-center:done ref=<id> at=<yesterday>`.
 
 ## Output contract
 
@@ -258,6 +258,6 @@ User says "I finished Y yesterday": `obsidian task-center:done ref=<id> at=<yest
 ## Do not
 
 - Do not edit task files directly with `Read` + `Write`; use the CLI so parser + locking invariants hold.
-- Do not try to install a wrapper shell script called `obsidian-task-center`; the plugin uses Obsidian's native CLI.
-- Do not call `obsidian task` / `obsidian tasks` (those are built-in, read-only) when you mean `task-center:…`.
+- Do not try to install a wrapper shell script called `obsidian-zentao-center`; the plugin uses Obsidian's native CLI.
+- Do not call `obsidian task` / `obsidian tasks` (those are built-in, read-only) when you mean `zentao-center:…`.
 - Do not stamp `✅` / `❌` / `➕` manually with `Edit` — let the plugin do it via `done` / `abandon` / `add`.

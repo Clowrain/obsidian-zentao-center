@@ -6,7 +6,7 @@
 
 ## 0. 产品一句话
 
-Task Center 在 Obsidian 原生 Markdown 任务之上，提供一个可配置的任务中心：
+Zentao Center 在 Obsidian 原生 Markdown 任务之上，提供一个可配置的任务中心：
 
 - 普通用户用图形界面查看、筛选、排期、复盘任务。
 - 高级用户把常用任务集合保存成 Query Tab。
@@ -18,7 +18,7 @@ Task Center 在 Obsidian 原生 Markdown 任务之上，提供一个可配置的
 
 ### 1.1 基础任务
 
-Task Center 识别 Obsidian Markdown 任务：
+Zentao Center 识别 Obsidian Markdown 任务：
 
 ```md
 - [ ] Task A ➕ 2026-04-24 ⏳ 2026-04-24
@@ -28,7 +28,7 @@ Task Center 识别 Obsidian Markdown 任务：
 
 ### 1.2 Obsidian Tasks 扩展字段
 
-Task Center 必须兼容这些 Obsidian Tasks 约定：
+Zentao Center 必须兼容这些 Obsidian Tasks 约定：
 
 - `➕` 创建于
 - `⏳` 排期
@@ -41,7 +41,7 @@ Task Center 必须兼容这些 Obsidian Tasks 约定：
 - `[字段名:: 值]` inline field，例如 `[estimate:: 90m]`、`[actual:: 75m]`
 - 合法 Obsidian hashtag，例如 `#project`
 
-`US-111` 已经混用 Obsidian Tasks 与 Dataview inline fields 管理任务日期的用户，希望读取时 Tasks emoji 与 Dataview inline field 两种任务格式都能被识别，写入时可以选择自己的 Tasks flavor。Task Center 读取侧同时兼容 `⏳/📅/🛫/➕/✅/❌/🔁/优先级 emoji` 与 `[scheduled::]`、`[due::]`、`[start::]`、`[created::]`、`[completion::]`、`[cancelled::]`、`[repeat::]`、`[priority::]`；同一字段两种格式同时存在时 Tasks emoji 优先。设置页提供“任务格式风味”偏好：Tasks flavor 写 emoji 字段，Dataview flavor 写 bracket inline fields。拖拽改期、日期选择、完成、放弃、Quick Add、CLI add / schedule / deadline / done / drop 都必须遵守同一偏好。
+`US-111` 已经混用 Obsidian Tasks 与 Dataview inline fields 管理任务日期的用户，希望读取时 Tasks emoji 与 Dataview inline field 两种任务格式都能被识别，写入时可以选择自己的 Tasks flavor。Zentao Center 读取侧同时兼容 `⏳/📅/🛫/➕/✅/❌/🔁/优先级 emoji` 与 `[scheduled::]`、`[due::]`、`[start::]`、`[created::]`、`[completion::]`、`[cancelled::]`、`[repeat::]`、`[priority::]`；同一字段两种格式同时存在时 Tasks emoji 优先。设置页提供“任务格式风味”偏好：Tasks flavor 写 emoji 字段，Dataview flavor 写 bracket inline fields。拖拽改期、日期选择、完成、放弃、Quick Add、CLI add / schedule / deadline / done / drop 都必须遵守同一偏好。
 
 ### 1.3 字节级保留
 
@@ -80,7 +80,7 @@ agent 需要：
 
 用户希望复盘“计划花多久”和“实际花多久”，也希望按自己的方法组织优先级、项目、精力状态。
 
-Task Center 不内置任何方法论。优先级、项目、能量、重要紧急等都只是用户自己的 tag / inline field / query 配置。
+Zentao Center 不内置任何方法论。优先级、项目、能量、重要紧急等都只是用户自己的 tag / inline field / query 配置。
 
 ## 3. 产品模型
 
@@ -125,7 +125,7 @@ TODO、已完成、未排期、今日、搜索结果、工作、个人都不是 
 
 ## 4. 主界面信息架构
 
-用户打开 Task Center 后，界面从上到下应当有清楚的对象层级：
+用户打开 Zentao Center 后，界面从上到下应当有清楚的对象层级：
 
 1. Header：当前任务中心状态、状态栏入口、Quick Add 入口。
 2. Query Tab Strip：切换已保存的 Query。
@@ -229,7 +229,7 @@ Filter 的目标是帮用户把全库任务缩小到当前要看的集合。Filt
 
 ### 7.2 标签筛选
 
-`US-108` Task Center 支持用户用任意合法 hashtag 扩展任务。应用层不允许硬编码任何 tag 名。
+`US-108` Zentao Center 支持用户用任意合法 hashtag 扩展任务。应用层不允许硬编码任何 tag 名。
 
 `US-109d` 标签控件是“标签”按钮 + popover：
 
@@ -322,7 +322,7 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 
 `US-117b` 移动端 Query Tab 条可以左右滑动浏览 tab，但它不是纵向滚动区域。tab 条必须固定高度、隐藏纵向 overflow；在 tab 条上竖向滑动不能让 tab 自己上下滚动。移动端 tab 不显示桌面快捷键提示，也不提供拖拽排序 / dwell。
 
-`US-117c` 在 Obsidian Mobile 中，Task Center 的底部内容和主要操作不能被 Obsidian 自带底部工具栏遮挡。用户在任务列表、未排期 tray、Query 编辑面板、父任务选择面板中，都必须能看清并点到最后一行内容和确认按钮。
+`US-117c` 在 Obsidian Mobile 中，Zentao Center 的底部内容和主要操作不能被 Obsidian 自带底部工具栏遮挡。用户在任务列表、未排期 tray、Query 编辑面板、父任务选择面板中，都必须能看清并点到最后一行内容和确认按钮。
 
 `US-117d` 移动端周/月工具栏必须优先保证日期导航可读。上一周 / 下一周 / 回到本周、当前日期范围、编辑 Query、设置入口不能挤在同一条窄行里导致日期截断或按钮互相压缩；低频操作可以换行或收进面板。
 
@@ -600,7 +600,7 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 
 ### 11.1 源 Markdown 编辑层
 
-`US-168` 点击 Task Card 进入源 Markdown 编辑能力，并定位到 `task.path:task.line`。用户可以直接编辑该任务、子任务和上下文。桌面端在当前 Task Center 上方打开源 Markdown 编辑层；移动端从详情 / 操作 sheet 的“编辑原文”显式动作进入 Obsidian 原生 Markdown 编辑器，并定位到任务行。
+`US-168` 点击 Task Card 进入源 Markdown 编辑能力，并定位到 `task.path:task.line`。用户可以直接编辑该任务、子任务和上下文。桌面端在当前 Zentao Center 上方打开源 Markdown 编辑层；移动端从详情 / 操作 sheet 的”编辑原文”显式动作进入 Obsidian 原生 Markdown 编辑器，并定位到任务行。
 
 这个入口取代：
 
@@ -617,11 +617,11 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 
 `US-168d` 旧 hover popover、卡片双击打开源文件、右键菜单打开源文件对应实现必须删除。同一能力统一由源 Markdown 编辑层承担。
 
-`US-168e` 桌面端 Esc、右上关闭、点击遮罩都能关闭编辑层，并回到原 tab / filter / scroll 状态。移动端使用 Obsidian 原生导航返回 Task Center。
+`US-168e` 桌面端 Esc、右上关闭、点击遮罩都能关闭编辑层，并回到原 tab / filter / scroll 状态。移动端使用 Obsidian 原生导航返回 Zentao Center。
 
 `US-168f` 视觉验收必须提供桌面与移动证据，证明它不是整屏 textarea / preview markdown 的开发者工具感，而是可用的 Obsidian-style 编辑体验。
 
-`US-168g` 移动端不在 Task Center 内嵌完整 Markdown 编辑浮层，不用 textarea 或自制 preview 冒充编辑器；必须调用 Obsidian 官方 workspace / MarkdownView 编辑能力打开源文件、定位任务行，并交给 Obsidian 原生编辑器处理键盘、安全区和滚动。
+`US-168g` 移动端不在 Zentao Center 内嵌完整 Markdown 编辑浮层，不用 textarea 或自制 preview 冒充编辑器；必须调用 Obsidian 官方 workspace / MarkdownView 编辑能力打开源文件、定位任务行，并交给 Obsidian 原生编辑器处理键盘、安全区和滚动。
 
 `US-168h` 桌面编辑层内提供“打开（新标签页）”入口，用 Obsidian 原生 Markdown 标签页打开并定位到同一任务行。它是用户主动选择，不能取代桌面默认当前页编辑层；移动端该入口本身就是原生打开原文。
 
@@ -774,7 +774,7 @@ tag:#alpha,#beta · 排期:本周 · 状态:TODO · view:周
 `US-215` 设置页提供 AI skill 安装指引，展示可复制命令：
 
 ```text
-npx skills add CorrectRoadH/obsidian-task-center
+npx skills add CorrectRoadH/obsidian-zentao-center
 ```
 
 该入口只是帮助，不在移动端制造不可用 CLI 功能。
@@ -857,7 +857,7 @@ npx skills add CorrectRoadH/obsidian-task-center
 
 ## 17. 精力管理故事
 
-`US-301` 用户可以按自己的优先级方法管理任务。Task Center 只提供 tag / inline field / query / matrix / summary 这些通用能力，不内置方法论。
+`US-301` 用户可以按自己的优先级方法管理任务。Zentao Center 只提供 tag / inline field / query / matrix / summary 这些通用能力，不内置方法论。
 
 `US-302` 用户可以记录估时与实际耗时。默认约定是 `[estimate:: 90m]` 与 `[actual:: 75m]`，支持 `Nh / NhMm / Nm`。用户也可以换成自己的字段名。
 
@@ -907,7 +907,7 @@ npx skills add CorrectRoadH/obsidian-task-center
 
 ### 20.1 产品定位
 
-禅道集成是一个**外部任务导入通道**，不是 Task Center 的第二数据源。禅道任务被拉取后转化为标准 Obsidian Markdown 任务（`- [ ] 任务名 📅 截止日期`），此后与手动创建的任务完全等价：受同一份 Query DSL 管理、同一套 View 渲染、同一个 writer 写回。
+禅道集成是一个**外部任务导入通道**，不是 Zentao Center 的第二数据源。禅道任务被拉取后转化为标准 Obsidian Markdown 任务（`- [ ] 任务名 📅 截止日期`），此后与手动创建的任务完全等价：受同一份 Query DSL 管理、同一套 View 渲染、同一个 writer 写回。
 
 核心原则：
 

@@ -1,12 +1,14 @@
 {
   "id": "zentao-integration",
-  "title": "禅道任务自动加载集成",
-  "status": "in_progress",
-  "strategy": "full-collaborate",
-  "currentPhase": "1",
-  "nextAction": "编写用户故事 USER_STORIES.md",
+  "title": "禅道任务完成状态双向同步",
+  "status": "completed",
+  "strategy": "guided-develop",
+  "currentPhase": "done",
+  "nextAction": null,
   "gate": null,
   "branch": "main",
-  "scope": "zentao-integration",
-  "createdAt": "2026-06-09T13:48:42+08:00"
+  "scope": "zentao-finish-sync",
+  "createdAt": "2026-06-09T13:48:42+08:00",
+  "completedAt": "2026-06-10T10:30:00+08:00",
+  "commit": "ebbc52a"
 }

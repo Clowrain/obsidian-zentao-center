@@ -2,7 +2,7 @@
 //
 // Uses Obsidian's getLanguage() API (available since v1.1.0) to detect
 // the user's UI language. No separate plugin language toggle —
-// Task Center follows whatever the user already configured in Obsidian.
+// Zentao Center follows whatever the user already configured in Obsidian.
 
 import { getLanguage } from "obsidian";
 
@@ -103,7 +103,7 @@ const EN = {
   "notice.scheduled": "→ ⏳ {date}",
   "notice.clearedSchedule": "removed schedule",
   "notice.error": "error: {msg}",
-  "notice.reloaded": "Task Center: reloaded",
+  "notice.reloaded": "Zentao Center: reloaded",
   "notice.fileNotFound": "file not found: {path}",
   "notice.invalidDate": "invalid date",
   "notice.nested": "nested under {title} {where}",
@@ -135,31 +135,31 @@ const EN = {
     'Set ⏳ for "{title}"  (YYYY-MM-DD, today, tomorrow, or blank to clear)',
 
   // Commands
-  "cmd.open": "Open Task Center",
+  "cmd.open": "Open Zentao Center",
   "cmd.quickAdd": "Quick add task",
   "cmd.reloadTasks": "Reload tasks",
 
   // Ribbon
-  "ribbon.open": "Open Task Center",
+  "ribbon.open": "Open Zentao Center",
 
   // Settings
-  "settings.header": "Task Center",
+  "settings.header": "Zentao Center",
   // task #32 (0.3.0 breaking): `settings.dailyFolder.name/desc` removed
   // — the setting is gone, so the i18n keys for its label/description
   // are dead. Daily-note path now reads from Obsidian's built-in Daily
   // Notes core plugin config exclusively (see writer.ts).
   "settings.defaultView.name": "Default view",
-  "settings.defaultView.desc": "Which tab to show when Task Center opens.",
+  "settings.defaultView.desc": "Which tab to show when Zentao Center opens.",
   "settings.defaultView.today": "Today",
   "settings.defaultView.week": "Week",
   "settings.defaultView.month": "Month",
   "settings.defaultView.completed": "Completed",
   "settings.defaultView.unscheduled": "Unscheduled",
   "settings.defaultSavedView.name": "Default query tab",
-  "settings.defaultSavedView.desc": "Optional saved query tab to open on cold start. If unset, Task Center falls back to the first visible tab.",
+  "settings.defaultSavedView.desc": "Optional saved query tab to open on cold start. If unset, Zentao Center falls back to the first visible tab.",
   "settings.defaultSavedView.none": "Follow the first visible tab",
   "settings.manageTabs.name": "Manage query tabs",
-  "settings.manageTabs.desc": "Open the main Task Center tabs panel to create, rename, reorder, hide, restore, or delete query tabs.",
+  "settings.manageTabs.desc": "Open the main Zentao Center tabs panel to create, rename, reorder, hide, restore, or delete query tabs.",
   "settings.manageTabs.action": "Open manager",
   "settings.restoreBuiltins.name": "Restore preset tabs",
   "settings.restoreBuiltins.desc": "Recreate and reset the built-in query tabs: Today, Week, Month, Completed, and Unscheduled.",
@@ -168,9 +168,9 @@ const EN = {
   "settings.weekStart.desc": "Monday = ISO; Sunday = US style.",
   "settings.weekStart.mon": "Monday",
   "settings.weekStart.sun": "Sunday",
-  "settings.openOnStartup.name": "Open Task Center on startup",
+  "settings.openOnStartup.name": "Open Zentao Center on startup",
   "settings.openOnStartup.desc":
-    "Opens Task Center automatically when Obsidian starts.",
+    "Opens Zentao Center automatically when Obsidian starts.",
   "settings.stampCreated.name": "Stamp created date",
   "settings.stampCreated.desc":
     "Append ➕ today when adding new tasks. CLI can override per add.",
@@ -190,7 +190,7 @@ const EN = {
   "settings.mobileForceLayout.desc":
     "Keep the narrow / mobile layout regardless of viewport width. Useful on iPad in landscape, split-screen, or large foldables when you prefer the column layout over the desktop one.",
   "settings.skillInstall.name": "AI skill",
-  "settings.skillInstall.desc": "Install the Task Center skill for agents:",
+  "settings.skillInstall.desc": "Install the Zentao Center skill for agents:",
   "settings.copy": "Copy",
   "settings.copied": "Copied.",
   "settings.cliHeader": "CLI",
@@ -218,7 +218,7 @@ const EN = {
   // Same key set is reused by both surfaces so the two stay in lock-step.
   "status.today": "📋 {n} today",
   "status.overdue": "⚠ {n} overdue",
-  "status.openTooltip": "Click to open Task Center",
+  "status.openTooltip": "Click to open Zentao Center",
 
   // task #43: est/act metadata badges on every card.
   "meta.est": "est {dur}",
@@ -508,7 +508,7 @@ const ZH: Partial<typeof EN> = {
   "notice.scheduled": "→ ⏳ {date}",
   "notice.clearedSchedule": "已清除排期",
   "notice.error": "错误：{msg}",
-  "notice.reloaded": "Task Center: 已刷新",
+  "notice.reloaded": "Zentao Center: 已刷新",
   "notice.fileNotFound": "文件不存在：{path}",
   "notice.invalidDate": "日期格式不对",
   "notice.nested": "已嵌入到「{title}」{where}",
@@ -541,7 +541,7 @@ const ZH: Partial<typeof EN> = {
 
   "ribbon.open": "打开任务看板",
 
-  "settings.header": "Task Center",
+  "settings.header": "Zentao Center",
   "settings.defaultView.name": "默认视图",
   "settings.defaultView.desc": "打开看板时默认展示哪个 tab。",
   "settings.defaultView.today": "今日",
@@ -583,7 +583,7 @@ const ZH: Partial<typeof EN> = {
   "settings.mobileForceLayout.desc":
     "无论屏幕宽度都保持窄/移动布局。iPad 横屏、分屏、大屏可折叠设备的用户如果更想要列式布局, 打开这个.",
   "settings.skillInstall.name": "AI skill",
-  "settings.skillInstall.desc": "给 agent 安装 Task Center skill：",
+  "settings.skillInstall.desc": "给 agent 安装 Zentao Center skill：",
   "settings.copy": "复制",
   "settings.copied": "已复制。",
   "settings.cliHeader": "CLI",

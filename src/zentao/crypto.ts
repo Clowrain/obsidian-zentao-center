@@ -9,7 +9,7 @@
 // does NOT provide the same security as a system keychain. Users who need
 // stronger protection should consider this a trade-off.
 
-const FIXED_SEED = "obsidian-task-center-zentao-v1";
+const FIXED_SEED = "obsidian-zentao-center-v1";
 const ENCRYPTION_ALGO = "AES-GCM";
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12; // 96-bit IV for GCM

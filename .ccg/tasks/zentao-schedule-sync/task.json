@@ -1,0 +1,12 @@
+{
+  "id": "zentao-schedule-sync",
+  "title": "禅道任务排期同步：拖动/右键菜单排期时调用禅道 API 更新 deadline",
+  "status": "in_progress",
+  "strategy": "guided-develop",
+  "currentPhase": "1",
+  "nextAction": "在 ZentaoClient 添加 updateTaskDeadline 方法",
+  "gate": null,
+  "branch": "main",
+  "scope": "zentao-schedule-sync",
+  "createdAt": "2026-06-10T12:00:00Z"
+}

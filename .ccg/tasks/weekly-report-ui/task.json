@@ -1,0 +1,12 @@
+{
+  "id": "weekly-report-ui",
+  "title": "周报按钮移到看板 + 格式调整",
+  "status": "completed",
+  "strategy": "guided-develop",
+  "currentPhase": "6-verify",
+  "nextAction": "验证通过",
+  "gate": null,
+  "branch": "main",
+  "scope": "weekly-report-ui",
+  "createdAt": "2026-06-10T15:30:00Z"
+}

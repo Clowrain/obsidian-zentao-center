@@ -4,7 +4,7 @@
 
 ## 模块职责
 
-obsidian-task-center 的完整测试套件，分为单测（`.test.mjs`）和 e2e（`.e2e.ts`）两层。
+obsidian-zentao-center 的完整测试套件，分为单测（`.test.mjs`）和 e2e（`.e2e.ts`）两层。
 
 ## 测试结构
 

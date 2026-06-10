@@ -1,7 +1,7 @@
 {
   "timestamp": "2026-06-09T13:48:42+08:00",
-  "project": "obsidian-task-center",
-  "description": "Obsidian 插件：周/月视图 + 父子任务渲染 + 自然语言 Quick Add + 移动端手势",
+  "project": "obsidian-zentao-center",
+  "description": "Obsidian 插件：禅道集成 + 周/月视图 + 父子任务渲染 + 自然语言 Quick Add + 移动端手势",
   "language": "TypeScript",
   "framework": "Obsidian Plugin API",
   "buildTool": "esbuild",

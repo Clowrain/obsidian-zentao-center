@@ -4,7 +4,7 @@
 
 ## 模块职责
 
-obsidian-task-center 的完整插件实现。基于 esbuild 打包为单个 `main.js`（CJS 格式，目标 ES2020），入口为 `src/main.ts`。
+obsidian-zentao-center 的完整插件实现。基于 esbuild 打包为单个 `main.js`（CJS 格式，目标 ES2020），入口为 `src/main.ts`。
 
 插件提供三大能力：
 1. **可视化看板**（Today / Week / Month / Matrix / List 视图 + 父子任务渲染）

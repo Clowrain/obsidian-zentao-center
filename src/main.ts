@@ -110,7 +110,7 @@ export default class TaskCenterPlugin extends Plugin {
     this.addSettingTab(new TaskCenterSettingTab(this.app, this));
 
     // CLI — native Obsidian CLI handlers registered via the 1.12.2+ API.
-    // All verbs are colon-grouped under `task-center:…`, matching the Obsidian
+    // All verbs are colon-grouped under `zentao-center:…`, matching the Obsidian
     // convention (compare `daily:read`, `base:query`).
     if (typeof (this as Plugin).registerCliHandler === "function") {
       try {
@@ -328,14 +328,14 @@ export default class TaskCenterPlugin extends Plugin {
   // see USER_STORIES.md
   private registerAllCliHandlers() {
     this.registerCliHandler(
-      "task-center",
-      "Show Task Center CLI help",
+      "zentao-center",
+      "Show Zentao Center CLI help",
       {},
       () => this.cliHelp(),
     );
 
     this.registerCliHandler(
-      "task-center:list",
+      "zentao-center:list",
       "List tasks with filters",
       {
         scheduled: {
@@ -360,7 +360,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:show",
+      "zentao-center:show",
       "Show one task in full detail",
       {
         ref: { value: "<path:line|hash>", description: "Task id", required: true },
@@ -369,7 +369,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:stats",
+      "zentao-center:stats",
       "Estimate accuracy + tag distribution (rolling window)",
       {
         days: { value: "<n>", description: "Rolling window in days (default 7)" },
@@ -382,7 +382,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:brief",
+      "zentao-center:brief",
       "Agent brief: today status + executable next actions",
       {
         today: { value: "<YYYY-MM-DD>", description: "Override today's date" },
@@ -393,7 +393,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:review",
+      "zentao-center:review",
       "Review mode: today/week completion, abandonment, delay, estimate accuracy, grouping",
       {
         today: { value: "<YYYY-MM-DD>", description: "Override today's date" },
@@ -405,7 +405,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:schedule",
+      "zentao-center:schedule",
       "Set or clear ⏳ scheduled date on a task",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -415,7 +415,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:deadline",
+      "zentao-center:deadline",
       "Set or clear 📅 deadline on a task",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -425,7 +425,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:actual",
+      "zentao-center:actual",
       "Set or add actual minutes ([actual:: Nm]) on a task",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -435,7 +435,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:estimate",
+      "zentao-center:estimate",
       "Set or clear [estimate:: Nm] on a task",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -445,7 +445,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:done",
+      "zentao-center:done",
       "Mark a task done (✅ today unless at= given)",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -455,7 +455,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:undone",
+      "zentao-center:undone",
       "Unmark a task (remove ✅ and reset checkbox)",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -464,7 +464,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:abandon",
+      "zentao-center:abandon",
       "Mark a task abandoned ([-] + ❌ today; children cascade)",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -475,8 +475,8 @@ export default class TaskCenterPlugin extends Plugin {
     // Deprecated alias kept for backward compatibility — `abandon` is the
     // preferred verb (matches README's `[-] ❌` = "Abandoned" terminology).
     this.registerCliHandler(
-      "task-center:drop",
-      "Alias for task-center:abandon (deprecated)",
+      "zentao-center:drop",
+      "Alias for zentao-center:abandon (deprecated)",
       {
         ref: { value: "<id>", description: "Task id", required: true },
       },
@@ -484,7 +484,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:add",
+      "zentao-center:add",
       "Create a new task line",
       {
         text: { value: "<text>", description: "Task title", required: true },
@@ -503,7 +503,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:tag",
+      "zentao-center:tag",
       "Add or remove a tag on a task",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -514,7 +514,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:nest",
+      "zentao-center:nest",
       "Move a task (and its subtree) to become a subtask of another (works cross-file)",
       {
         ref: { value: "<id>", description: "Task to move", required: true },
@@ -524,7 +524,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:rename",
+      "zentao-center:rename",
       "Rename a task title (preserves all metadata)",
       {
         ref: { value: "<id>", description: "Task id", required: true },
@@ -534,7 +534,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-list",
+      "zentao-center:query-list",
       "List saved query presets",
       {
         hidden: { description: "Include hidden presets" },
@@ -544,7 +544,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-show",
+      "zentao-center:query-show",
       "Show one saved query preset as DSL",
       {
         id: { value: "<preset-id>", description: "Saved query preset id", required: true },
@@ -553,7 +553,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-run",
+      "zentao-center:query-run",
       "Run a saved query preset and render its view",
       {
         id: { value: "<preset-id>", description: "Saved query preset id", required: true },
@@ -567,7 +567,7 @@ export default class TaskCenterPlugin extends Plugin {
     // VAL-CLI-006: query-create is an alias that reuses the same QueryPreset
     // create implementation as query-save (stable id, invalid_query rejection).
     this.registerCliHandler(
-      "task-center:query-save",
+      "zentao-center:query-save",
       "Create a saved query preset from DSL JSON",
       {
         dsl: { value: "<json>", description: "Query preset DSL as JSON", required: true },
@@ -576,7 +576,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-create",
+      "zentao-center:query-create",
       "Create a saved query preset from DSL JSON (alias for query-save)",
       {
         dsl: { value: "<json>", description: "Query preset DSL as JSON", required: true },
@@ -585,7 +585,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-update",
+      "zentao-center:query-update",
       "Replace an existing saved query preset from DSL JSON",
       {
         id: { value: "<preset-id>", description: "Saved query preset id", required: true },
@@ -595,7 +595,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-rename",
+      "zentao-center:query-rename",
       "Rename a saved query preset",
       {
         id: { value: "<preset-id>", description: "Saved query preset id", required: true },
@@ -605,7 +605,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-copy",
+      "zentao-center:query-copy",
       "Duplicate a saved query preset",
       {
         id: { value: "<preset-id>", description: "Source preset id", required: true },
@@ -615,7 +615,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-hide",
+      "zentao-center:query-hide",
       "Hide or unhide a saved query preset",
       {
         id: { value: "<preset-id>", description: "Saved query preset id", required: true },
@@ -625,7 +625,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-delete",
+      "zentao-center:query-delete",
       "Delete a saved query preset",
       {
         id: { value: "<preset-id>", description: "Saved query preset id", required: true },
@@ -634,7 +634,7 @@ export default class TaskCenterPlugin extends Plugin {
     );
 
     this.registerCliHandler(
-      "task-center:query-set-default",
+      "zentao-center:query-set-default",
       "Set or clear the default saved query preset",
       {
         id: { value: "<preset-id|null>", description: "Preset id or null to clear", required: true },
@@ -650,41 +650,41 @@ export default class TaskCenterPlugin extends Plugin {
 
   private cliHelp(): string {
     return [
-      "Task Center CLI",
+      "Zentao Center CLI",
       "",
       "Task verbs:",
-      "  task-center:list scheduled=today|tomorrow|unscheduled|week|next-week|month|next-month|YYYY-MM-DD|FROM..TO [status=todo|done|dropped] [tag=#work] [format=json]",
-      "  task-center:show ref=<task-id>",
-      "  task-center:add text=<text> [to=<path>] [tag=#work,#home] [scheduled=YYYY-MM-DD] [deadline=YYYY-MM-DD] [estimate=30m] [parent=<task-id>]",
-      "  task-center:schedule ref=<task-id> date=<YYYY-MM-DD|null>",
-      "  task-center:deadline ref=<task-id> date=<YYYY-MM-DD|null>",
-      "  task-center:done ref=<task-id> [at=YYYY-MM-DD]",
-      "  task-center:undone ref=<task-id>",
-      "  task-center:abandon ref=<task-id>",
-      "  task-center:actual ref=<task-id> minutes=<30m|+15m>",
-      "  task-center:estimate ref=<task-id> minutes=<30m|null>",
-      "  task-center:tag ref=<task-id> tag=<#tag> [remove]",
-      "  task-center:nest ref=<task-id> under=<parent-task-id>",
-      "  task-center:rename ref=<task-id> title=<new-title>",
-      "  task-center:stats [days=7] [group=象限] [format=json]",
-      "  task-center:brief [today=YYYY-MM-DD] [format=json]",
-      "  task-center:review [days=7] [format=json]",
+      "  zentao-center:list scheduled=today|tomorrow|unscheduled|week|next-week|month|next-month|YYYY-MM-DD|FROM..TO [status=todo|done|dropped] [tag=#work] [format=json]",
+      "  zentao-center:show ref=<task-id>",
+      "  zentao-center:add text=<text> [to=<path>] [tag=#work,#home] [scheduled=YYYY-MM-DD] [deadline=YYYY-MM-DD] [estimate=30m] [parent=<task-id>]",
+      "  zentao-center:schedule ref=<task-id> date=<YYYY-MM-DD|null>",
+      "  zentao-center:deadline ref=<task-id> date=<YYYY-MM-DD|null>",
+      "  zentao-center:done ref=<task-id> [at=YYYY-MM-DD]",
+      "  zentao-center:undone ref=<task-id>",
+      "  zentao-center:abandon ref=<task-id>",
+      "  zentao-center:actual ref=<task-id> minutes=<30m|+15m>",
+      "  zentao-center:estimate ref=<task-id> minutes=<30m|null>",
+      "  zentao-center:tag ref=<task-id> tag=<#tag> [remove]",
+      "  zentao-center:nest ref=<task-id> under=<parent-task-id>",
+      "  zentao-center:rename ref=<task-id> title=<new-title>",
+      "  zentao-center:stats [days=7] [group=象限] [format=json]",
+      "  zentao-center:brief [today=YYYY-MM-DD] [format=json]",
+      "  zentao-center:review [days=7] [format=json]",
       "",
       "Query Tab verbs:",
-      "  task-center:query-list [hidden=true] [format=json]",
-      "  task-center:query-show id=<tab-id>",
-      "  task-center:query-run id=<tab-id> [view=list|week|month|matrix] [anchor=YYYY-MM-DD] [format=json]",
-      "  task-center:query-create dsl=<json>",
-      "  task-center:query-save dsl=<json>",
-      "  task-center:query-update id=<tab-id> dsl=<json>",
-      "  task-center:query-rename id=<tab-id> name=<name>",
-      "  task-center:query-copy id=<tab-id> [name=<name>]",
-      "  task-center:query-hide id=<tab-id> hidden=true|false",
-      "  task-center:query-delete id=<tab-id>",
-      "  task-center:query-set-default id=<tab-id|null>",
+      "  zentao-center:query-list [hidden=true] [format=json]",
+      "  zentao-center:query-show id=<tab-id>",
+      "  zentao-center:query-run id=<tab-id> [view=list|week|month|matrix] [anchor=YYYY-MM-DD] [format=json]",
+      "  zentao-center:query-create dsl=<json>",
+      "  zentao-center:query-save dsl=<json>",
+      "  zentao-center:query-update id=<tab-id> dsl=<json>",
+      "  zentao-center:query-rename id=<tab-id> name=<name>",
+      "  zentao-center:query-copy id=<tab-id> [name=<name>]",
+      "  zentao-center:query-hide id=<tab-id> hidden=true|false",
+      "  zentao-center:query-delete id=<tab-id>",
+      "  zentao-center:query-set-default id=<tab-id|null>",
       "",
       "Companion AI skill:",
-      "  npx skills add CorrectRoadH/obsidian-task-center",
+      "  npx skills add CorrectRoadH/obsidian-zentao-center",
     ].join("\n");
   }
 

@@ -16,7 +16,7 @@
 
 | Surface | 移动端形态 | 说明 |
 | --- | --- | --- |
-| Task Center 主视图 | 全屏 WorkspaceLeaf | Obsidian Mobile 内占满当前 leaf |
+| Zentao Center 主视图 | 全屏 WorkspaceLeaf | Obsidian Mobile 内占满当前 leaf |
 | Header 状态 | 嵌入主视图 header | 替代桌面状态栏，显示 `📋 N today · ⚠ M overdue`（US-106） |
 | Query Tab Strip | 横向滚动 tab 条 + 更多 | tab 是 QueryPreset，不是固定页面名（US-109g / US-109q） |
 | Query 编辑 | bottom sheet | 入口必须叫“编辑 Query”或等价对象名（US-109p4 / US-117） |
@@ -30,7 +30,7 @@
 
 ```text
 ┌──────────────────────────────────────┐
-│ Task Center        📋 3 · ⚠ 1        │  Header
+│ Zentao Center       📋 3 · ⚠ 1        │  Header
 ├──────────────────────────────────────┤
 │ [今日][本周][本月][TODO][更多]       │  Query Tab Strip
 ├──────────────────────────────────────┤

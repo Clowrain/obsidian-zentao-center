@@ -7,7 +7,7 @@ import { ZentaoClient } from "./zentao/client";
 import { decrypt } from "./zentao/crypto";
 import { generateWeeklyReport } from "./zentao/weekly-report";
 
-const SKILL_INSTALL_COMMAND = "npx skills add CorrectRoadH/obsidian-task-center";
+const SKILL_INSTALL_COMMAND = "npx skills add CorrectRoadH/obsidian-zentao-center";
 
 export class TaskCenterSettingTab extends PluginSettingTab {
   constructor(

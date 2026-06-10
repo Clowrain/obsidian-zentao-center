@@ -1117,11 +1117,11 @@ test("task-center root CLI handler prints help with AI skill install command", a
   const plugin = new TaskCenterPlugin(app);
   await plugin.onload();
 
-  const help = await app.__cliHandlers.get("task-center").handler({});
-  assert.match(help, /Task Center CLI/);
-  assert.match(help, /task-center:query-list/);
-  assert.match(help, /task-center:query-set-default/);
-  assert.match(help, /npx skills add CorrectRoadH\/obsidian-task-center/);
+  const help = await app.__cliHandlers.get("zentao-center").handler({});
+  assert.match(help, /Zentao Center CLI/);
+  assert.match(help, /zentao-center:query-list/);
+  assert.match(help, /zentao-center:query-set-default/);
+  assert.match(help, /npx skills add CorrectRoadH\/obsidian-zentao-center/);
 });
 
 // VAL-CLI-006: builtins cannot be permanently deleted via CLI

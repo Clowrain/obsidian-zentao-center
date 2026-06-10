@@ -1,0 +1,12 @@
+{
+  "id": "zentao-secret-storage",
+  "title": "禅道密码存储迁移到 Obsidian SecretStorage",
+  "status": "in_progress",
+  "strategy": "refactor-safely",
+  "currentPhase": "1",
+  "nextAction": "修改 types.ts 移除加密字段，添加迁移逻辑",
+  "gate": null,
+  "branch": "main",
+  "scope": "zentao-secret-storage",
+  "createdAt": "2026-06-10T13:00:00Z"
+}

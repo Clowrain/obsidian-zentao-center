@@ -1,8 +1,8 @@
-# Obsidian Task Center
+# Obsidian Zentao Center
 
-[简体中文](https://github.com/CorrectRoadH/obsidian-task-center/blob/main/README.zh-CN.md) / [English](https://github.com/CorrectRoadH/obsidian-task-center/blob/main/README.md)
+[简体中文](https://github.com/CorrectRoadH/obsidian-zentao-center/blob/main/README.zh-CN.md) / [English](https://github.com/CorrectRoadH/obsidian-zentao-center/blob/main/README.md)
 
-Task Center is an Obsidian plugin for planning markdown tasks on a daily, weekly, and monthly board.
+Zentao Center is an Obsidian plugin for planning markdown tasks on a daily, weekly, and monthly board, with Zentao integration.
 
 It keeps your tasks in plain markdown. No database. No private task format.
 
@@ -24,13 +24,13 @@ It keeps your tasks in plain markdown. No database. No private task format.
 - Spotlight-style Quick Add with English and Chinese date parsing.
 - Estimate and actual-time summaries from inline fields.
 - Mobile layout with long-press menus and swipe actions.
-- Agent-friendly `obsidian task-center:*` CLI commands.
+- Agent-friendly `obsidian zentao-center:*` CLI commands.
 
 ## Install
 
 Install from Obsidian Community Plugins:
 
-[Install Task Center](https://community.obsidian.md/plugins/task-center)
+[Install Zentao Center](https://community.obsidian.md/plugins/zentao-center)
 
 Before using it:
 
@@ -46,7 +46,7 @@ Before using it:
    - [ ] Renew passport 📅 2026-05-30
    ```
 
-2. Open Task Center from the ribbon icon, command palette, or `Ctrl/Cmd+Shift+T`.
+2. Open Zentao Center from the ribbon icon, command palette, or `Ctrl/Cmd+Shift+T`.
 3. Use Quick Add with `Ctrl/Cmd+T` inside the board.
 
    ```text
@@ -58,14 +58,14 @@ Natural-language dates such as `today`, `tomorrow`, `今天`, and `周六` are r
 
 ## Task Formats
 
-Task Center reads both Tasks emoji fields and Dataview inline fields:
+Zentao Center reads both Tasks emoji fields and Dataview inline fields:
 
 ```markdown
 - [ ] Tasks emoji ⏳ 2026-05-15 📅 2026-05-20 ➕ 2026-05-01
 - [ ] Dataview [scheduled:: 2026-05-15] [due:: 2026-05-20] [created:: 2026-05-01]
 ```
 
-The write format is controlled by **Settings → Task Center → Task format flavor**.
+The write format is controlled by **Settings → Zentao Center → Task format flavor**.
 
 - **Tasks emoji** writes fields such as `⏳`, `📅`, `➕`, `✅`, and `❌`.
 - **Dataview inline fields** writes fields such as `[scheduled::]`, `[due::]`, `[created::]`, `[completion::]`, and `[cancelled::]`.
@@ -82,15 +82,15 @@ Unknown inline fields and tags are preserved.
 
 ## CLI
 
-Task Center registers commands with Obsidian's native CLI:
+Zentao Center registers commands with Obsidian's native CLI:
 
 ```bash
-obsidian task-center:list scheduled=today
-obsidian task-center:show ref=Tasks/Inbox.md:L42
-obsidian task-center:add text="Review launch checklist" tag='#work' scheduled=2026-05-15
-obsidian task-center:schedule ref=Tasks/Inbox.md:L42 date=2026-05-16
-obsidian task-center:done ref=Tasks/Inbox.md:L42 at=2026-04-28
-obsidian task-center:review days=7 format=json
+obsidian zentao-center:list scheduled=today
+obsidian zentao-center:show ref=Tasks/Inbox.md:L42
+obsidian zentao-center:add text="Review launch checklist" tag='#work' scheduled=2026-05-15
+obsidian zentao-center:schedule ref=Tasks/Inbox.md:L42 date=2026-05-16
+obsidian zentao-center:done ref=Tasks/Inbox.md:L42 at=2026-04-28
+obsidian zentao-center:review days=7 format=json
 ```
 
 CLI output is stable and greppable: task ids use `path:Lnn`, writes are idempotent, and mutations print `before` / `after` lines.
@@ -98,7 +98,7 @@ CLI output is stable and greppable: task ids use `path:Lnn`, writes are idempote
 To install the companion AI skill:
 
 ```bash
-npx skills add CorrectRoadH/obsidian-task-center
+npx skills add CorrectRoadH/obsidian-zentao-center
 ```
 
 ## Settings
@@ -107,7 +107,7 @@ npx skills add CorrectRoadH/obsidian-task-center
 | --- | --- | --- |
 | Default view | Week | First tab shown when the board opens |
 | Week starts on | Monday | Week and calendar boundaries |
-| Open on startup | Off | Whether Task Center opens with the vault |
+| Open on startup | Off | Whether Zentao Center opens with the vault |
 | Stamp created date | On | Whether new tasks get a created date |
 | Task format flavor | Tasks emoji | Tasks emoji vs Dataview inline-field writes |
 | Force mobile layout | Off | Use phone layout on wider screens |
