@@ -579,6 +579,16 @@ export class TaskCache {
     this.allLoaded = false;
     this.allLoadingPromise = null;
   }
+
+  // US-900: clear cache when task source folders change, force re-scan
+  resetFilter(): void {
+    this.byPath.clear();
+    this.byHash.clear();
+    this.staleHashByRef.clear();
+    this._flatCache = null;
+    this.allLoaded = false;
+    this.allLoadingPromise = null;
+  }
 }
 
 async function mapLimit<T>(

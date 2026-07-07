@@ -157,7 +157,11 @@ export class TaskCenterSettingTab extends PluginSettingTab {
             new FolderSuggestModal(this.app, (path: string) => {
               if (this.plugin.settings.taskSourceFolders.includes(path)) return;
               this.plugin.settings.taskSourceFolders.push(path);
-              this.plugin.saveSettings().then(() => this.display()).catch(() => {});
+              this.plugin.saveSettings().then(async () => {
+                this.plugin.cache.resetFilter();
+                await this.plugin.refreshOpenViews();
+                this.display();
+              }).catch(() => {});
             }).open();
           }),
       );
@@ -171,7 +175,11 @@ export class TaskCenterSettingTab extends PluginSettingTab {
         const chip = chipsContainer.createSpan({ cls: "task-center-settings-chip", text: folder });
         chip.createSpan({ cls: "task-center-settings-chip-remove", text: "×" }).onClickEvent(() => {
           this.plugin.settings.taskSourceFolders = this.plugin.settings.taskSourceFolders.filter((f) => f !== folder);
-          this.plugin.saveSettings().then(() => this.display()).catch(() => {});
+          this.plugin.saveSettings().then(async () => {
+            this.plugin.cache.resetFilter();
+            await this.plugin.refreshOpenViews();
+            this.display();
+          }).catch(() => {});
         });
       }
     }
