@@ -78,6 +78,11 @@ export class TaskCache {
     refs.push(
       this.app.metadataCache.on("changed", (file) => {
         if (file instanceof TFile && file.extension === "md") {
+          // US-416: skip files outside configured task source folders
+          const folders = this.getTaskSourceFolders();
+          if (folders.length > 0 && !this.matchesTaskSourceFolder(file.path, folders)) {
+            return;
+          }
           this.knownMarkdownPaths.add(file.path);
           void this.invalidateFile(file.path);
         }
@@ -86,6 +91,11 @@ export class TaskCache {
     refs.push(
       this.app.vault.on("create", (f) => {
         if (f instanceof TFile && f.extension === "md") {
+          // US-416: skip files outside configured task source folders
+          const folders = this.getTaskSourceFolders();
+          if (folders.length > 0 && !this.matchesTaskSourceFolder(f.path, folders)) {
+            return;
+          }
           this.knownMarkdownPaths.add(f.path);
           void this.invalidateFile(f.path);
         }
@@ -144,6 +154,12 @@ export class TaskCache {
   }
 
   private async reparse(path: string): Promise<FileEntry | null> {
+    // US-416: skip files outside configured task source folders
+    const folders = this.getTaskSourceFolders();
+    if (folders.length > 0 && !this.matchesTaskSourceFolder(path, folders)) {
+      this.dropPath(path);
+      return null;
+    }
     const af = this.app.vault.getAbstractFileByPath(path);
     if (!af || !(af instanceof TFile) || af.extension !== "md") {
       this.dropPath(path);
@@ -259,6 +275,11 @@ export class TaskCache {
    * the whole vault).
    */
   async ensureFile(path: string): Promise<FileEntry | null> {
+    // US-416: skip files outside configured task source folders
+    const folders = this.getTaskSourceFolders();
+    if (folders.length > 0 && !this.matchesTaskSourceFolder(path, folders)) {
+      return null;
+    }
     const inFlight = this.pending.get(path);
     if (inFlight) return inFlight;
     const cached = this.byPath.get(path);
@@ -417,9 +438,15 @@ export class TaskCache {
 
   flatten(): ParsedTask[] {
     if (this._flatCache) return this._flatCache;
+    const folders = this.getTaskSourceFolders();
+    const folderFilterActive = folders.length > 0;
     const out: ParsedTask[] = [];
     const paths = Array.from(this.byPath.keys()).sort();
     for (const p of paths) {
+      // US-416: filter by task source folders
+      if (folderFilterActive && !this.matchesTaskSourceFolder(p, folders)) {
+        continue;
+      }
       const e = this.byPath.get(p);
       if (e) out.push(...e.tasks);
     }
