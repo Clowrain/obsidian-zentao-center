@@ -3610,3 +3610,34 @@
 .tc-input-invalid {
   border-color: var(--color-red);
 }
+
+/* US-900~907: task source folder chips in settings */
+.task-center-settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.task-center-settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--background-modifier-hover);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.task-center-settings-chip-remove {
+  cursor: pointer;
+  color: var(--text-faint);
+  font-weight: bold;
+  margin-left: 4px;
+}
+
+.task-center-settings-chip-remove:hover {
+  color: var(--color-red);
+}

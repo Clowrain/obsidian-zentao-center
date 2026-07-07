@@ -56,7 +56,11 @@ export class TaskCache {
     invalidateCount: 0,
   };
 
-  constructor(private readonly app: App) {}
+  constructor(
+    private readonly app: App,
+    // US-900: callback to get task source folders from settings (empty array = entire vault).
+    private readonly getTaskSourceFolders: () => string[] = () => [],
+  ) {}
 
   /**
    * Returns the EventRefs the caller (Plugin) should `registerEvent()` so
@@ -357,9 +361,17 @@ export class TaskCache {
     const paths = new Set(this.knownMarkdownPaths);
     const metadataCache = this.app.metadataCache as MetadataCacheWithCachedFiles;
     let skipped = 0;
+    const folders = this.getTaskSourceFolders();
+    const folderFilterActive = folders.length > 0;
+
     if (typeof metadataCache.getCachedFiles === "function") {
       for (const path of metadataCache.getCachedFiles()) {
         if (!path.endsWith(".md") || paths.has(path)) continue;
+        // US-416: filter by task source folders (prefix match)
+        if (folderFilterActive && !this.matchesTaskSourceFolder(path, folders)) {
+          skipped++;
+          continue;
+        }
         const meta =
           typeof metadataCache.getCache === "function"
             ? metadataCache.getCache(path)
@@ -379,6 +391,10 @@ export class TaskCache {
     for (const path of paths) {
       const af = this.app.vault.getAbstractFileByPath(path);
       if (af instanceof TFile && af.extension === "md") {
+        // US-416: filter again when converting to TFile
+        if (folderFilterActive && !this.matchesTaskSourceFolder(af.path, folders)) {
+          continue;
+        }
         this.knownMarkdownPaths.add(af.path);
         files.push(af);
       } else {
@@ -386,6 +402,17 @@ export class TaskCache {
       }
     }
     return { files, skipped };
+  }
+
+  // US-416: check if path matches any configured task source folder (prefix match)
+  private matchesTaskSourceFolder(path: string, folders: string[]): boolean {
+    for (const folder of folders) {
+      // Root "/" matches everything
+      if (folder === "/" || folder === "") return true;
+      // Prefix match: path must start with folder path
+      if (path.startsWith(folder + "/") || path.startsWith(folder)) return true;
+    }
+    return false;
   }
 
   flatten(): ParsedTask[] {

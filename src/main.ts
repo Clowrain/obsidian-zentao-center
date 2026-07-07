@@ -69,7 +69,8 @@ export default class TaskCenterPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
-    this.cache = new TaskCache(this.app);
+    // US-900: pass task source folders getter to TaskCache
+    this.cache = new TaskCache(this.app, () => this.settings.taskSourceFolders);
     for (const ref of this.cache.bind()) this.registerEvent(ref);
     this.api = new TaskCenterApi(this.app, this.cache, () => ({
       taskFormatFlavor: this.settings.taskFormatFlavor,

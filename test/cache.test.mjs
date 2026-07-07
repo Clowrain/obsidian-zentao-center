@@ -875,3 +875,36 @@ test("VAL-CORE-003: rename event remaps path without re-parsing", async () => {
   assert.equal(tasks[0].path, "Tasks/new.md");
   assert.equal(tasks[0].id, "Tasks/new.md:L1");
 });
+
+// US-416: task source folders path matching
+test("US-416: matches path under configured folder (prefix match)", () => {
+  const app = makeApp([]);
+  const cache = new TaskCache(app, () => ["Tasks", "Projects"]);
+  const matches = cache.matchesTaskSourceFolder.bind(cache);
+  assert.equal(matches("Tasks/Inbox.md", ["Tasks"]), true);
+  assert.equal(matches("Projects/A.md", ["Projects"]), true);
+  assert.equal(matches("Tasks/Subfolder/B.md", ["Tasks"]), true);
+});
+
+test("US-416: rejects path not under any configured folder", () => {
+  const app = makeApp([]);
+  const cache = new TaskCache(app, () => ["Tasks", "Projects"]);
+  const matches = cache.matchesTaskSourceFolder.bind(cache);
+  assert.equal(matches("Notes/Random.md", ["Tasks", "Projects"]), false);
+  assert.equal(matches("Archive/Old.md", ["Tasks", "Projects"]), false);
+});
+
+test("US-416: empty folders array returns false", () => {
+  const app = makeApp([]);
+  const cache = new TaskCache(app, () => []);
+  const matches = cache.matchesTaskSourceFolder.bind(cache);
+  assert.equal(matches("Any/Path.md", []), false);
+});
+
+test("US-416: matches root '/' folder (entire vault)", () => {
+  const app = makeApp([]);
+  const cache = new TaskCache(app, () => ["/"]);
+  const matches = cache.matchesTaskSourceFolder.bind(cache);
+  assert.equal(matches("Any/Path.md", ["/"]), true);
+  assert.equal(matches("Root.md", ["/"]), true);
+});

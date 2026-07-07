@@ -204,6 +204,13 @@ const EN = {
     "Verbs register to the native Obsidian CLI (requires Obsidian 1.12.2+). Call them from your shell:",
   "settings.cliAiNote":
     "AI (Claude Code etc.) should call these directly — no eval hacks needed.",
+  // US-900~907: task source folders settings
+  "settings.taskSourceFolders.name": "Task source folders",
+  "settings.taskSourceFolders.desc":
+    "Limit task reading to these folders (and their subfolders). Empty = read from entire vault. Does NOT affect write targets.",
+  "settings.taskSourceFolders.addFolder": "Add folder",
+  "settings.taskSourceFolders.removeFolder": "Remove",
+  "settings.taskSourceFolders.emptyHint": "Reading from entire vault.",
 
   // US-412: error messages — surfaced via formatError(code, message) in
   // src/cli.ts. The thrown TaskWriterError keeps the English `message`
@@ -290,6 +297,20 @@ const EN = {
   "zentao.finishModal.commentPlaceholder": "添加备注...",
   "zentao.finishModal.cancel": "取消",
   "zentao.finishModal.confirm": "确认完成",
+
+  // US-834: Zentao comment modal
+  "zentao.commentModal.title": "添加备注",
+  "zentao.commentModal.subtitle": "任务：{title}",
+  "zentao.commentModal.commentLabel": "备注内容",
+  "zentao.commentModal.placeholder": "输入备注内容...",
+  "zentao.commentModal.cancel": "取消",
+  "zentao.commentModal.confirm": "提交",
+  "zentao.commentModal.success": "禅道备注已添加",
+  "zentao.commentModal.failed": "禅道备注失败：{msg}",
+  "zentao.commentModal.emptyError": "备注内容不能为空",
+
+  // Context menu: add comment for Zentao tasks
+  "ctx.addComment": "添加备注",
 
   // task #43: date prompt hint line — bilingual EN baseline (the original
   // hard-coded string already mixed today/tomorrow with 明天/周六; we
@@ -603,6 +624,13 @@ const ZH: Partial<typeof EN> = {
     "所有命令都注册到 Obsidian 原生 CLI（需要 Obsidian ≥ 1.12.2）。在终端这样调用：",
   "settings.cliAiNote":
     "AI（Claude Code 等）可以直接调用这些命令 — 不需要 eval hack。",
+  // US-900~907: 任务源文件夹配置
+  "settings.taskSourceFolders.name": "任务源文件夹",
+  "settings.taskSourceFolders.desc":
+    "限制只读取这些文件夹（及其子文件夹）中的任务。留空 = 读取整个 vault。不影响写入目标。",
+  "settings.taskSourceFolders.addFolder": "添加文件夹",
+  "settings.taskSourceFolders.removeFolder": "移除",
+  "settings.taskSourceFolders.emptyHint": "当前读取整个 vault。",
 
   // US-412: error messages（中文）
   "err.not_found": "找不到任务：{ref}",
@@ -682,6 +710,20 @@ const ZH: Partial<typeof EN> = {
   "zentao.finishModal.commentPlaceholder": "添加备注...",
   "zentao.finishModal.cancel": "取消",
   "zentao.finishModal.confirm": "确认完成",
+
+  // US-834: 禅道备注弹窗
+  "zentao.commentModal.title": "添加备注",
+  "zentao.commentModal.subtitle": "任务：{title}",
+  "zentao.commentModal.commentLabel": "备注内容",
+  "zentao.commentModal.placeholder": "输入备注内容...",
+  "zentao.commentModal.cancel": "取消",
+  "zentao.commentModal.confirm": "提交",
+  "zentao.commentModal.success": "禅道备注已添加",
+  "zentao.commentModal.failed": "禅道备注失败：{msg}",
+  "zentao.commentModal.emptyError": "备注内容不能为空",
+
+  // 右键菜单：禅道任务添加备注
+  "ctx.addComment": "添加备注",
 
   // task #43: 日期弹窗提示
   "prompt.dateHint":

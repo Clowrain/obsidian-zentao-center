@@ -106,6 +106,10 @@ export interface TaskCenterSettings {
   // US-801~808: Zentao integration settings. null = not configured.
   // When non-null, the "Load from Zentao" button appears in the board toolbar.
   zentao: ZentaoSettings | null;
+  // US-900: task source folders. Empty array = read from entire vault.
+  // When non-empty, TaskCache only scans files under these paths (prefix match).
+  // see USER_STORIES.md
+  taskSourceFolders: string[];
 }
 
 export type TaskFormatFlavor = "tasks" | "dataview";
@@ -265,6 +269,7 @@ export const DEFAULT_SETTINGS: TaskCenterSettings = {
   mobileSwipeEnabled: true,
   mobileForceLayout: false,
   zentao: null,
+  taskSourceFolders: [],
 };
 
 export const VIEW_TYPE_TASK_CENTER = "task-center-board";

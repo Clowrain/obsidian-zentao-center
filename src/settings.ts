@@ -1,4 +1,4 @@
-import { App, ButtonComponent, Notice, PluginSettingTab, Setting, FuzzySuggestModal } from "obsidian";
+import { App, ButtonComponent, Notice, PluginSettingTab, Setting, FuzzySuggestModal, TFolder } from "obsidian";
 import { t as tr } from "./i18n";
 import type TaskCenterPlugin from "./main";
 import { restoreBuiltinQueryPresets, visibleQueryPresets } from "./saved-views";
@@ -142,6 +142,39 @@ export class TaskCenterSettingTab extends PluginSettingTab {
             await this.plugin.refreshOpenViews();
           }),
       );
+
+    // US-900~907: task source folders configuration.
+    // Chip display for selected folders + "Add folder" button opening
+    // Obsidian native folder picker (FuzzySuggestModal over vault folders).
+    // see USER_STORIES.md
+    new Setting(containerEl)
+      .setName(tr("settings.taskSourceFolders.name"))
+      .setDesc(tr("settings.taskSourceFolders.desc"))
+      .addButton((btn) =>
+        btn
+          .setButtonText(tr("settings.taskSourceFolders.addFolder"))
+          .onClick(() => {
+            new FolderSuggestModal(this.app, (path: string) => {
+              if (this.plugin.settings.taskSourceFolders.includes(path)) return;
+              this.plugin.settings.taskSourceFolders.push(path);
+              this.plugin.saveSettings().then(() => this.display()).catch(() => {});
+            }).open();
+          }),
+      );
+    // Chip display for selected folders
+    const folders = this.plugin.settings.taskSourceFolders;
+    if (folders.length === 0) {
+      containerEl.createDiv({ cls: "setting-item-description", text: tr("settings.taskSourceFolders.emptyHint") });
+    } else {
+      const chipsContainer = containerEl.createDiv({ cls: "task-center-settings-chips" });
+      for (const folder of folders) {
+        const chip = chipsContainer.createSpan({ cls: "task-center-settings-chip", text: folder });
+        chip.createSpan({ cls: "task-center-settings-chip-remove", text: "×" }).onClickEvent(() => {
+          this.plugin.settings.taskSourceFolders = this.plugin.settings.taskSourceFolders.filter((f) => f !== folder);
+          this.plugin.saveSettings().then(() => this.display()).catch(() => {});
+        });
+      }
+    }
 
     // US-510: mobile-specific settings. Always rendered so cross-device
     // syncs (desktop user configuring their phone behaviour) work; the
@@ -557,6 +590,40 @@ class FileSuggestModal extends FuzzySuggestModal<string> {
 
   getItemText(item: string): string {
     return item;
+  }
+
+  onChooseItem(item: string): void {
+    this.onSelect(item);
+  }
+}
+
+// ── Folder Suggest Modal (US-900~907) ──
+
+class FolderSuggestModal extends FuzzySuggestModal<string> {
+  constructor(
+    app: App,
+    private onSelect: (path: string) => void,
+  ) {
+    super(app);
+    this.setPlaceholder("选择文件夹…");
+  }
+
+  getItems(): string[] {
+    const folders: string[] = [];
+    // Recursively collect all folder paths from the vault
+    for (const file of this.app.vault.getAllLoadedFiles()) {
+      if (file instanceof TFolder) {
+        // file is a folder
+        folders.push(file.path);
+      }
+    }
+    // Sort alphabetically and add root "/" as first option
+    folders.sort((a, b) => a.localeCompare(b));
+    return folders;
+  }
+
+  getItemText(item: string): string {
+    return item === "/" ? "(vault root)" : item;
   }
 
   onChooseItem(item: string): void {
